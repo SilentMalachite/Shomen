@@ -4,7 +4,7 @@
 
 **Goal:** フェーズ 2 の受入まで届ける。署名付きセッション Cookie、セッションに結びついた CSRF トークンと 403、urlencoded の `form` POST から `Input` へのバインド、422 での再描画、`input` のコンパイル時ラベル検査、`examples/hello` のフォーム 1 つ。
 
-**Architecture:** `Shomen::SessionStore` はサーバ側に状態を持たない。Cookie の値は `<id>.<HMAC-SHA256>` にし、CSRF トークンは同じ鍵で `"csrf:" + id` の HMAC-SHA256 を毎回計算する（D1）。`Shomen::Server` は要求ごとにセッションを読み込み、unsafe method の本文を一度だけ `URI::Params` にして `_csrf` を検査し、そのフォームと CSRF トークンの文字列を `Router` 経由で `Route.handle(request, form, csrf_token)` に渡す。ラベル検査は `Shomen::View` の `macro inherited` が各サブクラスに置く `macro method_added` で行い、メソッド本体を `stringify` して字句走査する。
+**Architecture:** `Shomen::SessionStore` はサーバ側に状態を持たない。Cookie の値は `<id>.<HMAC-SHA256>` にし、CSRF トークンは同じ鍵で `"csrf:" + id` の HMAC-SHA256 を毎回計算する（D1）。`Shomen::Server` は要求ごとにセッションを読み込み、unsafe method の本文を一度だけ `URI::Params` にして `_csrf` を検査し、そのフォームと CSRF トークンの文字列を `Router` 経由で `Route.handle(request, form, csrf_token)` に渡す。フォーム本文は 1 MiB までしか読まず、超えたら 413 にする（D10）。ラベル検査は `Shomen::View` の `macro finished` で行い、ビューごとに、そのビュー・親のビュー・include したモジュールのメソッド本体を `stringify` して字句走査する（D8）。
 
 **Tech Stack:** Crystal `>= 1.20.0`（開発機は 1.21.1）、標準ライブラリの `spec`、`http/server`、`uri`、`openssl/hmac`、`crypto/subtle`、`random/secure`。外部 shard は足さない。
 
@@ -19,6 +19,7 @@
 - `docs/decisions/20260929-phase2-validation-status.md`（D7）
 - `docs/decisions/20260929-phase2-input-label-check.md`（D8）
 - `docs/decisions/20260929-phase2-form-example.md`（D9）
+- `docs/decisions/20260929-phase2-form-body-limit.md`（D10。最終レビュー後に追加）
 
 ## Global Constraints
 
@@ -498,6 +499,7 @@ Expected: PASS。0 failures。`SHOMEN_SECRET is not set` が出力に出ない�
   - `Route.handle(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response`
   - `Shomen::Route#csrf_token : String`（`property`、既定値 `""`）
   - `Shomen::Server#dispatch(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response`
+  - `Shomen::Server::MAX_FORM_BYTES = 1_048_576`。超える本文は 413（D10）
   - spec 用ルート `ServerRoutes::Token`（`GET /phase2/token`、本文は `csrf_token`）、`ServerRoutes::Echo`（`POST /phase2/echo`、本文は `accepted`）、`ServerRoutes::Denied`（`GET /phase2/denied`、`Shomen::Forbidden` を上げる）
 
 - [ ] **Step 1: spec 用ルートを足す**
@@ -648,6 +650,23 @@ describe "CSRF" do
     call_with(server, "POST", "/phase2/echo", cookie: cookie, body: "name=%FF").status_code.should eq(403)
   end
 
+  it "returns 413 HTML for a form body over the size limit" do
+    server = Shomen::Server.new
+    cookie, token = start_session(server)
+    body = form_body({"_csrf" => token}) + "&pad=" + "x" * Shomen::Server::MAX_FORM_BYTES
+    response = call_with(server, "POST", "/phase2/echo", cookie: cookie, body: body)
+    response.status_code.should eq(413)
+    response.body.should contain("<title>Content too large</title>")
+  end
+
+  it "accepts a form body exactly at the size limit" do
+    server = Shomen::Server.new
+    cookie, token = start_session(server)
+    head = form_body({"_csrf" => token}) + "&pad="
+    body = head + "x" * (Shomen::Server::MAX_FORM_BYTES - head.bytesize)
+    call_with(server, "POST", "/phase2/echo", cookie: cookie, body: body).status_code.should eq(200)
+  end
+
   it "turns Shomen::Forbidden from a route into 403 HTML" do
     response = call_with(Shomen::Server.new, "GET", "/phase2/denied")
     response.status_code.should eq(403)
@@ -734,9 +753,10 @@ end
   UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
   FORM_TYPE      = "application/x-www-form-urlencoded"
   CSRF_FIELD     = "_csrf"
+  MAX_FORM_BYTES = 1_048_576
 ```
 
-`call`、`dispatch`、`respond` を次にし、`read_form`、`check_encoding`、`csrf_valid?` を足す。文字コードの検査は CSRF の検査の後に行う。トークンの無い POST は、本文が UTF-8 でなくても 403 にする（D4）:
+`call`、`dispatch`、`respond` を次にし、`read_form`、`check_encoding`、`csrf_valid?` を足す。検査の順は、本文の大きさ（413、D10）、CSRF（403）、文字コード（400）とする。トークンの無い POST は、本文が UTF-8 でなくても 403 にする（D4）:
 
 ```crystal
   def call(context : HTTP::Server::Context) : Nil
@@ -752,6 +772,7 @@ end
 
   private def respond(request : HTTP::Request, session : Shomen::Session) : Shomen::Response
     form = read_form(request)
+    return error_response(413, "Content too large", nil) unless form
     if UNSAFE_METHODS.includes?(request.method) && !csrf_valid?(form, session)
       return error_response(403, "Forbidden", nil)
     end
@@ -767,11 +788,17 @@ end
     error_response(500, "Error", ex.message)
   end
 
-  private def read_form(request : HTTP::Request) : URI::Params
+  # nil means the body is over MAX_FORM_BYTES and was not read to the end.
+  private def read_form(request : HTTP::Request) : URI::Params?
     return URI::Params.new unless UNSAFE_METHODS.includes?(request.method)
     media_type = request.headers["Content-Type"]?.try(&.split(';').first.strip.downcase)
     return URI::Params.new unless media_type == FORM_TYPE
-    URI::Params.parse(request.body.try(&.gets_to_end) || "")
+    body = request.body
+    return URI::Params.new unless body
+    return nil if (request.content_length || 0) > MAX_FORM_BYTES
+    buffer = IO::Memory.new
+    return nil if IO.copy(body, buffer, MAX_FORM_BYTES + 1) > MAX_FORM_BYTES
+    URI::Params.parse(buffer.to_s)
   end
 
   private def check_encoding(form : URI::Params) : Nil
@@ -1155,18 +1182,23 @@ Expected: PASS。0 failures
 - Create: `spec/fixtures/input_label_mismatch.cr`
 - Create: `spec/fixtures/input_after_label_block.cr`
 - Create: `spec/fixtures/input_label_in_string.cr`
-- Create: `spec/fixtures/input_in_helper_method.cr`
+- Create: `spec/fixtures/input_helper_without_label.cr`
+- Create: `spec/fixtures/input_in_included_module.cr`
+- Create: `spec/fixtures/input_self_call.cr`
+- Create: `spec/fixtures/input_empty_aria_label.cr`
+- Create: `spec/fixtures/input_dynamic_id.cr`
+- Create: `spec/fixtures/input_submit_type.cr`
 - Test: `spec/shomen/a11y_spec.cr`
 
 **Interfaces:**
 - Consumes: Task 5 の `csrf_field`
 - Produces:
-  - `Shomen::View` のサブクラス（孫クラスを含む）で定義したメソッドの本体に、ラベルの無い `input` 呼び出しがあればコンパイルエラー。メッセージは `<Type> input needs a label: label for: matching id:, a wrapping label, or "aria-label"`
-  - `Shomen::View.check_input_labels(source, type_name)` マクロ（内部用。`method_added` からだけ呼ぶ）
+  - `Shomen::View` のサブクラス（孫クラスを含む）ごとに、そのビュー・親のビュー・include したモジュールのメソッド本体を見て、ラベルの無い `input` 呼び出しがあればコンパイルエラー（D8）。メッセージは `<Type> input needs a label: a label whose string literal for: matches the input's string literal id:, a wrapping label, or a non-empty "aria-label" or "aria-labelledby"`。`type` が `submit`、`reset`、`button`、`image` なら `; for a submit, reset, button, or image control, use button instead` を足す
+  - `Shomen::View.check_input_labels(sources, type_name)` マクロ（内部用。`macro finished` からだけ呼ぶ）
 
 - [ ] **Step 1: 失敗するフィクスチャを書く**
 
-5 ファイルとも同じ形で、クラス名と `to_html` の本体だけが違う。
+10 ファイルとも、ビューを定義してコンパイルさせる形である。
 
 `spec/fixtures/input_missing_label.cr`:
 
@@ -1233,14 +1265,13 @@ end
 InputLabelInStringView.new.to_html
 ```
 
-`spec/fixtures/input_in_helper_method.cr`:
+`spec/fixtures/input_helper_without_label.cr`:
 
 ```crystal
 require "../../src/shomen"
 
-class InputInHelperMethodView < Shomen::View
+class InputHelperWithoutLabelView < Shomen::View
   def to_html : String
-    label("Name", for: "name")
     field
     result
   end
@@ -1250,7 +1281,92 @@ class InputInHelperMethodView < Shomen::View
   end
 end
 
-InputInHelperMethodView.new.to_html
+InputHelperWithoutLabelView.new.to_html
+```
+
+`spec/fixtures/input_in_included_module.cr`:
+
+```crystal
+require "../../src/shomen"
+
+module SearchField
+  def search_field : Nil
+    input(name: "q")
+  end
+end
+
+class InputInIncludedModuleView < Shomen::View
+  include SearchField
+
+  def to_html : String
+    search_field
+    result
+  end
+end
+
+InputInIncludedModuleView.new.to_html
+```
+
+`spec/fixtures/input_self_call.cr`:
+
+```crystal
+require "../../src/shomen"
+
+class InputSelfCallView < Shomen::View
+  def to_html : String
+    self.input(name: "q")
+    result
+  end
+end
+
+InputSelfCallView.new.to_html
+```
+
+`spec/fixtures/input_empty_aria_label.cr`:
+
+```crystal
+require "../../src/shomen"
+
+class InputEmptyAriaLabelView < Shomen::View
+  def to_html : String
+    input(name: "q", "aria-label": "")
+    result
+  end
+end
+
+InputEmptyAriaLabelView.new.to_html
+```
+
+`spec/fixtures/input_dynamic_id.cr`:
+
+```crystal
+require "../../src/shomen"
+
+class InputDynamicIdView < Shomen::View
+  def to_html : String
+    field_id = "name"
+    label("Name", for: field_id)
+    input(id: field_id, name: "name")
+    result
+  end
+end
+
+InputDynamicIdView.new.to_html
+```
+
+`spec/fixtures/input_submit_type.cr`:
+
+```crystal
+require "../../src/shomen"
+
+class InputSubmitTypeView < Shomen::View
+  def to_html : String
+    input(type: "submit", value: "Go")
+    result
+  end
+end
+
+InputSubmitTypeView.new.to_html
 ```
 
 - [ ] **Step 2: 失敗する spec を書く**
@@ -1289,11 +1405,57 @@ private class LabeledChild < LabeledBase
     result
   end
 end
+
+private class LabelInOtherMethod < Shomen::View
+  def to_html : String
+    label("Name", for: "name")
+    field
+    result
+  end
+
+  private def field : Nil
+    input(id: "name", name: "name")
+  end
+end
+
+private class LabelingParent < Shomen::View
+  def to_html : String
+    label("Name", for: "name")
+    result
+  end
+end
+
+private class LabeledByParent < LabelingParent
+  def to_html : String
+    input(id: "name", name: "name")
+    result
+  end
+end
+
+private class LabelledBy < Shomen::View
+  def to_html : String
+    h2 "Search", id: "search-heading"
+    self.input(name: "q", "aria-labelledby": "search-heading")
+    result
+  end
+end
 ```
 
 `describe Shomen::View` の中に足す:
 
 ```crystal
+  it "accepts a label in another method of the same view" do
+    LabelInOtherMethod.new.to_html.should eq("<label for=\"name\">Name</label><input id=\"name\" name=\"name\">")
+  end
+
+  it "accepts a label in a parent view" do
+    LabeledByParent.new.to_html.should eq("<input id=\"name\" name=\"name\">")
+  end
+
+  it "accepts aria-labelledby" do
+    LabelledBy.new.to_html.should contain("<input name=\"q\" aria-labelledby=\"search-heading\">")
+  end
+
   it "accepts inputs with a for label, a wrapping label, aria-label, or hidden type" do
     html = LabeledForm.new.to_html
     html.should contain("<input type=\"hidden\" name=\"_csrf\" value=\"tok\">")
@@ -1308,17 +1470,32 @@ end
   end
 
   {
-    "input_missing_label"     => "an input without a label",
-    "input_label_mismatch"    => "a label whose for does not match the input id",
-    "input_after_label_block" => "an input after a label block closes",
-    "input_label_in_string"   => "a label call that only appears inside a string",
-    "input_in_helper_method"  => "an input whose label is in another method",
+    "input_missing_label"        => "an input without a label",
+    "input_label_mismatch"       => "a label whose for does not match the input id",
+    "input_after_label_block"    => "an input after a label block closes",
+    "input_label_in_string"      => "a label call that only appears inside a string",
+    "input_helper_without_label" => "an input in a helper method of a view without a matching label",
+    "input_in_included_module"   => "an input in a module included into a view",
+    "input_self_call"            => "an input called through self",
+    "input_empty_aria_label"     => "an input with an empty aria-label",
+    "input_dynamic_id"           => "an input whose id is not a string literal",
+    "input_submit_type"          => "a submit input",
   }.each do |fixture, description|
     it "rejects #{description}" do
       status, output = crystal_build_fixture("spec/fixtures/#{fixture}.cr")
       status.should_not eq(0)
       output.should contain("input needs a label")
     end
+  end
+
+  it "says that for: and id: must be string literals" do
+    _, output = crystal_build_fixture("spec/fixtures/input_dynamic_id.cr")
+    output.should contain("string literal")
+  end
+
+  it "points a submit input to button" do
+    _, output = crystal_build_fixture("spec/fixtures/input_submit_type.cr")
+    output.should contain("use button")
   end
 ```
 
@@ -1343,56 +1520,71 @@ end
 - [ ] **Step 3: spec が失敗することを確認する**
 
 Run: `crystal spec spec/shomen/a11y_spec.cr`
-Expected: FAIL。5 つの `rejects ...` がコンパイル成功（status 0）で落ちる
+Expected: FAIL。10 個の `rejects ...` と、メッセージを確かめる 2 件が、コンパイル成功（status 0）で落ちる
 
 - [ ] **Step 4: ラベル検査を実装する**
 
 `src/shomen/a11y.cr` の `class Shomen::View` の中（`macro img` の後）に足す:
 
 ```crystal
-  macro inherited
-    macro method_added(method)
-      ::Shomen::View.check_input_labels(\{{method.body.stringify}}, \{{@type.name.stringify}})
-    end
+  # Runs once after the program is parsed, so an input can match a label
+  # anywhere in the same view: its own methods, its parent views, and the
+  # modules they include.
+  macro finished
+    {% for view in Shomen::View.all_subclasses %}
+      {% sources = [] of Nil %}
+      {% for owner in [view] + view.ancestors %}
+        {% unless owner == Shomen::View || Shomen::View.ancestors.includes?(owner) %}
+          {% for method in owner.methods %}
+            {% sources << method.body.stringify %}
+          {% end %}
+        {% end %}
+      {% end %}
+      ::Shomen::View.check_input_labels({{sources}}, {{view.name.stringify}})
+    {% end %}
   end
 
   # method.body.stringify prints one statement per line with two-space
   # indentation, so a label block's extent is found by indentation.
-  macro check_input_labels(source, type_name)
-    {% lines = source.lines %}
-    {% codes = lines.map { |line| line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") } %}
+  macro check_input_labels(sources, type_name)
     {% fors = [] of Nil %}
-    {% for line, index in lines %}
-      {% if codes[index] =~ /(^|[^.\w])label(\(|\s|$)/ %}
-        {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
-          {% fors << found[1] %}
+    {% for source in sources %}
+      {% for line in source.lines %}
+        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
+        {% if code =~ /(^|[^.\w])(self\.)?label(\(|\s|$)/ %}
+          {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
+            {% fors << found[1] %}
+          {% end %}
         {% end %}
       {% end %}
     {% end %}
-    {% open = [] of Nil %}
-    {% for line, index in lines %}
-      {% code = codes[index] %}
-      {% indent = line.size - line.gsub(/^ +/, "").size %}
-      {% if code.strip == "end" && !open.empty? && open.last >= indent %}
-        {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
-      {% end %}
-      {% if code =~ /(^|[^.\w])label(\(.*\))? do\b/ %}
-        {% open << indent %}
-      {% elsif code =~ /(^|[^.\w])input(\(|\s*$)/ %}
-        {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line.includes?("\"aria-label\": ") %}
-        {% unless ok %}
-          {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
-          {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+    {% for source in sources %}
+      {% open = [] of Nil %}
+      {% for line in source.lines %}
+        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
+        {% indent = line.size - line.gsub(/^ +/, "").size %}
+        {% if code.strip == "end" && !open.empty? && open.last >= indent %}
+          {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
         {% end %}
-        {% unless ok %}
-          {% raise "#{type_name.id} input needs a label: label for: matching id:, a wrapping label, or \"aria-label\"" %}
+        {% if code =~ /(^|[^.\w])(self\.)?label(\(.*\))? do\b/ %}
+          {% open << indent %}
+        {% elsif code =~ /(^|[^.\w])(self\.)?input(\(|\s*$)/ %}
+          {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
+          {% unless ok %}
+            {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
+            {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+          {% end %}
+          {% unless ok %}
+            {% hint = line =~ /\btype: "(submit|reset|button|image)"/ ? "; for a submit, reset, button, or image control, use button instead" : "" %}
+            {% raise "#{type_name.id} input needs a label: a label whose string literal for: matches the input's string literal id:, a wrapping label, or a non-empty \"aria-label\" or \"aria-labelledby\"#{hint.id}" %}
+          {% end %}
         {% end %}
       {% end %}
     {% end %}
   end
 ```
 
-`macro inherited` の中の `macro method_added` は `\{{ }}` でエスケープする。外側の `inherited` の展開時ではなく、サブクラスでメソッドが定義されたときに評価させるためである。判定ロジックを `inherited` の本体に直接書くと、`do` や `end` を含む文字列を外側のマクロ字句解析が数えてしまい、`unterminated macro` になる。そのため判定は別マクロ `check_input_labels` に分けている。
+`macro finished` はプログラム全体を読んだ後に一度だけ動くので、ビューの別メソッド、親のビュー、include したモジュールが見える。`finished` は各ビューのメソッド本体を文字列の配列にして `check_input_labels` に渡すだけにし、判定は別マクロに置く。`for:` はビュー全体から集め、`label ... do` ブロックの範囲はメソッドごとにインデントで決める。
 
 - [ ] **Step 5: spec が通ることを確認する**
 
@@ -1410,7 +1602,7 @@ Expected: PASS。0 failures。`ErrorView` と既存の spec 用ビューもコ�
 
 **Interfaces:**
 - Consumes: Task 2 の `Shomen::Server.new`、Task 3 の `csrf_token`、Task 4 のフォームバインド、Task 5 の `csrf_field` と `render(view, status:)`、Task 6 のラベル検査
-- Produces: `Greeting::EditView`、`Greeting::Edit`（`GET /greeting`）、`Greeting::Update`（`POST /greeting`）
+- Produces: `Greeting::EditView`、`Greeting::ShowView`、`Greeting::Edit`（`GET /greeting`）、`Greeting::Update`（`POST /greeting`）、`Greeting::Show`（`GET /greeting/:name`）
 
 - [ ] **Step 1: 失敗する spec を書く**
 
@@ -1466,13 +1658,31 @@ describe Greeting do
     response.body.should contain("Name must be at least 2 characters")
   end
 
-  it "redirects with 303 when the name is valid" do
+  it "redirects with 303 to the greeting when the name is valid" do
     server = Shomen::Server.new
     cookie, token = open_form(server)
-    body = URI::Params.encode({"_csrf" => token, "name" => "Ada"})
+    body = URI::Params.encode({"_csrf" => token, "name" => " Ada "})
     response = request(server, "POST", "/greeting", cookie, body)
     response.status_code.should eq(303)
-    response.headers["Location"].should eq("/greeting")
+    response.headers["Location"].should eq("/greeting/Ada")
+  end
+
+  it "shows the saved name escaped" do
+    response = request(Shomen::Server.new, "GET", "/greeting/%3Cb%3E")
+    response.status_code.should eq(200)
+    response.body.should contain("<h1>Hello, &lt;b&gt;</h1>")
+    response.body.should contain("href=\"/greeting\"")
+  end
+
+  it "redisplays a name with a slash, question mark, or hash with 422" do
+    server = Shomen::Server.new
+    cookie, token = open_form(server)
+    ["a/b", "a?b", "a#b"].each do |name|
+      body = URI::Params.encode({"_csrf" => token, "name" => name})
+      response = request(server, "POST", "/greeting", cookie, body)
+      response.status_code.should eq(422)
+      response.body.should contain("Name must not contain /, ?, or #")
+    end
   end
 
   it "rejects a POST without the csrf token" do
@@ -1528,6 +1738,26 @@ module Greeting
     end
   end
 
+  class ShowView < Shomen::View
+    def initialize(@name : String)
+    end
+
+    def to_html : String
+      name = @name
+      html lang: "en" do
+        head do
+          title "Greeting"
+        end
+        body do
+          main do
+            h1 "Hello, #{name}"
+            a "Change", href: Greeting::Edit.path
+          end
+        end
+      end
+    end
+  end
+
   class Edit < Shomen::Route
     method GET
     path "/greeting"
@@ -1552,10 +1782,31 @@ module Greeting
     end
 
     def call(input : Input) : Shomen::Response
-      if input.name.strip.size < 2
+      name = input.name.strip
+      if name.size < 2
         return render EditView.new(input.name, csrf_token, "Name must be at least 2 characters"), status: 422
       end
-      redirect Edit.path
+      # The path helper refuses these characters in a path parameter.
+      if name.includes?('/') || name.includes?('?') || name.includes?('#')
+        return render EditView.new(input.name, csrf_token, "Name must not contain /, ?, or #"), status: 422
+      end
+      redirect Show.path(name: name)
+    end
+  end
+
+  class Show < Shomen::Route
+    method GET
+    path "/greeting/:name"
+
+    struct Input
+      getter name : String
+
+      def initialize(@name : String)
+      end
+    end
+
+    def call(input : Input) : Shomen::Response
+      render ShowView.new(input.name)
     end
   end
 end
@@ -1564,7 +1815,7 @@ end
 - [ ] **Step 4: spec が通ることを確認する**
 
 Run: `cd examples/hello && shards install && crystal spec`
-Expected: PASS。既存の 2 件と合わせて 7 examples, 0 failures
+Expected: PASS。既存の 2 件と合わせて 9 examples, 0 failures
 
 - [ ] **Step 5: 手で動かして確かめる**
 
@@ -1574,12 +1825,13 @@ Expected: PASS。既存の 2 件と合わせて 7 examples, 0 failures
 jar="$(mktemp)"
 token="$(curl -s -c "$jar" http://127.0.0.1:3000/greeting | sed -n 's/.*name="_csrf" value="\([^"]*\)".*/\1/p')"
 curl -s -b "$jar" -o /dev/null -w '%{http_code}\n' --data-urlencode "_csrf=$token" --data-urlencode "name=A" http://127.0.0.1:3000/greeting
+curl -s -b "$jar" -o /dev/null -w '%{http_code} %{redirect_url}\n' --data-urlencode "_csrf=$token" --data-urlencode "name=Ada" http://127.0.0.1:3000/greeting
 curl -s -b "$jar" -o /dev/null -w '%{http_code}\n' --data-urlencode "name=Ada" http://127.0.0.1:3000/greeting
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/
 rm -f "$jar"
 ```
 
-Expected: `422`、`403`、`200` の順。サーバの起動時に `SHOMEN_SECRET is not set` の警告が 1 行出る。確認したらサーバを止める。
+Expected: `422`、`303 http://127.0.0.1:3000/greeting/Ada`、`403`、`200` の順。サーバの起動時に `SHOMEN_SECRET is not set` の警告が 1 行出る。確認したらサーバを止める。
 
 ---
 
@@ -1618,10 +1870,11 @@ Phase 2 adds these:
 
 - `Input` fields from a urlencoded form POST. A missing or malformed field is 400
 - `render(view, status: 422)` to redisplay a form
-- A signed `shomen_session` cookie. The key is `SHOMEN_SECRET`. Without it, a random key lasts until restart
+- A signed `shomen_session` cookie. The key is `SHOMEN_SECRET`. Without it, a random key lasts until restart. The server keeps no session state, so with a fixed key a session survives a restart. Behind HTTPS, start the server with `Shomen::Server.start(https: true)` so the cookie is also `Secure`
 - A CSRF token in the session. `csrf_field(csrf_token)` writes it into a form. POST, PUT, PATCH, and DELETE without the matching `_csrf` return 403
-- A compile-time check that every `input` has a `label` with a matching `for`, a wrapping `label`, or `"aria-label"`. `type: "hidden"` is exempt
-- `GET /greeting` and `POST /greeting` in `examples/hello`
+- A form body over 1 MiB returns 413
+- A compile-time check that every `input` has a label in the same view: a `label` whose `for:` matches the input's `id:` (both string literals), a wrapping `label`, or a non-empty `"aria-label"` or `"aria-labelledby"`. The view's other methods, its parent views, and included modules count. `type: "hidden"` is exempt. For a submit control, use `button`
+- `GET /greeting`, `POST /greeting`, and `GET /greeting/:name` in `examples/hello`
 
 These are specified for later phases and are not in the code: SQLite, commands and events, HTML fragments, the official JavaScript file, SSE, and islands.
 
@@ -1653,10 +1906,11 @@ The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 
 - urlencoded の form POST から `Input` のフィールドを組む。欠けたフィールドや不正な値は 400
 - フォームを描き直すための `render(view, status: 422)`
-- 署名付きの `shomen_session` Cookie。鍵は `SHOMEN_SECRET` で、未設定なら再起動まで有効なランダムな鍵を使う
+- 署名付きの `shomen_session` Cookie。鍵は `SHOMEN_SECRET` で、未設定なら再起動まで有効なランダムな鍵を使う。サーバはセッションの状態を持たないので、鍵を固定すれば再起動してもセッションが続く。HTTPS の後ろで動かすときは `Shomen::Server.start(https: true)` で起動すると、Cookie に `Secure` も付く
 - セッションに入った CSRF トークン。`csrf_field(csrf_token)` でフォームに書く。一致する `_csrf` が無い POST、PUT、PATCH、DELETE は 403
-- すべての `input` に、`for` が一致する `label`、囲む `label`、`"aria-label"` のいずれかを求めるコンパイル時検査。`type: "hidden"` は対象外
-- `examples/hello` の `GET /greeting` と `POST /greeting`
+- 1 MiB を超えるフォーム本文は 413
+- すべての `input` に、同じビューの中のラベルを求めるコンパイル時検査。`for:` が `input` の `id:` と一致する `label`（どちらも文字列リテラル）、囲む `label`、空でない `"aria-label"` か `"aria-labelledby"` のいずれか。ビューの別メソッド、親のビュー、include したモジュールも数える。`type: "hidden"` は対象外。送信には `button` を使う
+- `examples/hello` の `GET /greeting`、`POST /greeting`、`GET /greeting/:name`
 
 SQLite、コマンドとイベント、HTML 断片、公式 JavaScript、SSE、島は、後のフェーズの仕様であり、コードにはありません。
 
@@ -1689,7 +1943,7 @@ rm -f shomen
 cd examples/hello && shards install && crystal spec
 ```
 
-Expected: format の差分なし。本体の spec は 0 failures、警告なし。ビルドが成功する。hello は 7 examples, 0 failures。`shard.yml` に `dependencies` が無い。
+Expected: format の差分なし。本体の spec は 0 failures、警告なし。ビルドが成功する。hello は 9 examples, 0 failures。`shard.yml` に `dependencies` が無い。
 
 受入との対応:
 
