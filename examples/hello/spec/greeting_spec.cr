@@ -38,13 +38,31 @@ describe Greeting do
     response.body.should contain("Name must be at least 2 characters")
   end
 
-  it "redirects with 303 when the name is valid" do
+  it "redirects with 303 to the greeting when the name is valid" do
     server = Shomen::Server.new
     cookie, token = open_form(server)
-    body = URI::Params.encode({"_csrf" => token, "name" => "Ada"})
+    body = URI::Params.encode({"_csrf" => token, "name" => " Ada "})
     response = request(server, "POST", "/greeting", cookie, body)
     response.status_code.should eq(303)
-    response.headers["Location"].should eq("/greeting")
+    response.headers["Location"].should eq("/greeting/Ada")
+  end
+
+  it "shows the saved name escaped" do
+    response = request(Shomen::Server.new, "GET", "/greeting/%3Cb%3E")
+    response.status_code.should eq(200)
+    response.body.should contain("<h1>Hello, &lt;b&gt;</h1>")
+    response.body.should contain("href=\"/greeting\"")
+  end
+
+  it "redisplays a name with a slash, question mark, or hash with 422" do
+    server = Shomen::Server.new
+    cookie, token = open_form(server)
+    ["a/b", "a?b", "a#b"].each do |name|
+      body = URI::Params.encode({"_csrf" => token, "name" => name})
+      response = request(server, "POST", "/greeting", cookie, body)
+      response.status_code.should eq(422)
+      response.body.should contain("Name must not contain /, ?, or #")
+    end
   end
 
   it "rejects a POST without the csrf token" do

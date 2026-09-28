@@ -99,6 +99,23 @@ describe "CSRF" do
     call_with(server, "POST", "/phase2/echo", cookie: cookie, body: "name=%FF").status_code.should eq(403)
   end
 
+  it "returns 413 HTML for a form body over the size limit" do
+    server = Shomen::Server.new
+    cookie, token = start_session(server)
+    body = form_body({"_csrf" => token}) + "&pad=" + "x" * Shomen::Server::MAX_FORM_BYTES
+    response = call_with(server, "POST", "/phase2/echo", cookie: cookie, body: body)
+    response.status_code.should eq(413)
+    response.body.should contain("<title>Content too large</title>")
+  end
+
+  it "accepts a form body exactly at the size limit" do
+    server = Shomen::Server.new
+    cookie, token = start_session(server)
+    head = form_body({"_csrf" => token}) + "&pad="
+    body = head + "x" * (Shomen::Server::MAX_FORM_BYTES - head.bytesize)
+    call_with(server, "POST", "/phase2/echo", cookie: cookie, body: body).status_code.should eq(200)
+  end
+
   it "turns Shomen::Forbidden from a route into 403 HTML" do
     response = call_with(Shomen::Server.new, "GET", "/phase2/denied")
     response.status_code.should eq(403)

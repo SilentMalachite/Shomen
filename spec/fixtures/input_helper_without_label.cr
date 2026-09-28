@@ -1,8 +1,7 @@
 require "../../src/shomen"
 
-class InputInHelperMethodView < Shomen::View
+class InputHelperWithoutLabelView < Shomen::View
   def to_html : String
-    label("Name", for: "name")
     field
     result
   end
@@ -12,4 +11,4 @@ class InputInHelperMethodView < Shomen::View
   end
 end
 
-InputInHelperMethodView.new.to_html
+InputHelperWithoutLabelView.new.to_html

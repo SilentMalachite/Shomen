@@ -87,10 +87,11 @@ Phase 2 adds these:
 
 - `Input` fields from a urlencoded form POST. A missing or malformed field is 400
 - `render(view, status: 422)` to redisplay a form
-- A signed `shomen_session` cookie. The key is `SHOMEN_SECRET`. Without it, a random key lasts until restart. The server keeps no session state, so with a fixed key a session survives a restart
+- A signed `shomen_session` cookie. The key is `SHOMEN_SECRET`. Without it, a random key lasts until restart. The server keeps no session state, so with a fixed key a session survives a restart. Behind HTTPS, start the server with `Shomen::Server.start(https: true)` so the cookie is also `Secure`
 - A CSRF token in the session. `csrf_field(csrf_token)` writes it into a form. POST, PUT, PATCH, and DELETE without the matching `_csrf` return 403
-- A compile-time check that every `input` has a `label` with a matching `for`, a wrapping `label`, or `"aria-label"`. `type: "hidden"` is exempt
-- `GET /greeting` and `POST /greeting` in `examples/hello`
+- A form body over 1 MiB returns 413
+- A compile-time check that every `input` has a label in the same view: a `label` whose `for:` matches the input's `id:` (both string literals), a wrapping `label`, or a non-empty `"aria-label"` or `"aria-labelledby"`. The view's other methods, its parent views, and included modules count. `type: "hidden"` is exempt. For a submit control, use `button`
+- `GET /greeting`, `POST /greeting`, and `GET /greeting/:name` in `examples/hello`
 
 These are specified for later phases and are not in the code: SQLite, commands and events, HTML fragments, the official JavaScript file, SSE, and islands.
 

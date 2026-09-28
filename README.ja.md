@@ -87,10 +87,11 @@ Shomen::Server.start
 
 - urlencoded の form POST から `Input` のフィールドを組む。欠けたフィールドや不正な値は 400
 - フォームを描き直すための `render(view, status: 422)`
-- 署名付きの `shomen_session` Cookie。鍵は `SHOMEN_SECRET` で、未設定なら再起動まで有効なランダムな鍵を使う。サーバはセッションの状態を持たないので、鍵を固定すれば再起動してもセッションが続く
+- 署名付きの `shomen_session` Cookie。鍵は `SHOMEN_SECRET` で、未設定なら再起動まで有効なランダムな鍵を使う。サーバはセッションの状態を持たないので、鍵を固定すれば再起動してもセッションが続く。HTTPS の後ろで動かすときは `Shomen::Server.start(https: true)` で起動すると、Cookie に `Secure` も付く
 - セッションに入った CSRF トークン。`csrf_field(csrf_token)` でフォームに書く。一致する `_csrf` が無い POST、PUT、PATCH、DELETE は 403
-- すべての `input` に、`for` が一致する `label`、囲む `label`、`"aria-label"` のいずれかを求めるコンパイル時検査。`type: "hidden"` は対象外
-- `examples/hello` の `GET /greeting` と `POST /greeting`
+- 1 MiB を超えるフォーム本文は 413
+- すべての `input` に、同じビューの中のラベルを求めるコンパイル時検査。`for:` が `input` の `id:` と一致する `label`（どちらも文字列リテラル）、囲む `label`、空でない `"aria-label"` か `"aria-labelledby"` のいずれか。ビューの別メソッド、親のビュー、include したモジュールも数える。`type: "hidden"` は対象外。送信には `button` を使う
+- `examples/hello` の `GET /greeting`、`POST /greeting`、`GET /greeting/:name`
 
 SQLite、コマンドとイベント、HTML 断片、公式 JavaScript、SSE、島は、後のフェーズの仕様であり、コードにはありません。
 

@@ -9,6 +9,7 @@ class Shomen::Server
   UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
   FORM_TYPE      = "application/x-www-form-urlencoded"
   CSRF_FIELD     = "_csrf"
+  MAX_FORM_BYTES = 1_048_576
 
   @@generated_secret : String?
 
@@ -46,6 +47,7 @@ class Shomen::Server
 
   private def respond(request : HTTP::Request, session : Shomen::Session) : Shomen::Response
     form = read_form(request)
+    return error_response(413, "Content too large", nil) unless form
     if UNSAFE_METHODS.includes?(request.method) && !csrf_valid?(form, session)
       return error_response(403, "Forbidden", nil)
     end
@@ -61,11 +63,17 @@ class Shomen::Server
     error_response(500, "Error", ex.message)
   end
 
-  private def read_form(request : HTTP::Request) : URI::Params
+  # nil means the body is over MAX_FORM_BYTES and was not read to the end.
+  private def read_form(request : HTTP::Request) : URI::Params?
     return URI::Params.new unless UNSAFE_METHODS.includes?(request.method)
     media_type = request.headers["Content-Type"]?.try(&.split(';').first.strip.downcase)
     return URI::Params.new unless media_type == FORM_TYPE
-    URI::Params.parse(request.body.try(&.gets_to_end) || "")
+    body = request.body
+    return URI::Params.new unless body
+    return nil if (request.content_length || 0) > MAX_FORM_BYTES
+    buffer = IO::Memory.new
+    return nil if IO.copy(body, buffer, MAX_FORM_BYTES + 1) > MAX_FORM_BYTES
+    URI::Params.parse(buffer.to_s)
   end
 
   private def check_encoding(form : URI::Params) : Nil

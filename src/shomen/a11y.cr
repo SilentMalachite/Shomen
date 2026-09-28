@@ -55,42 +55,57 @@ class Shomen::View
     @out << ">"
   end
 
-  macro inherited
-    macro method_added(method)
-      ::Shomen::View.check_input_labels(\{{method.body.stringify}}, \{{@type.name.stringify}})
-    end
+  # Runs once after the program is parsed, so an input can match a label
+  # anywhere in the same view: its own methods, its parent views, and the
+  # modules they include.
+  macro finished
+    {% for view in Shomen::View.all_subclasses %}
+      {% sources = [] of Nil %}
+      {% for owner in [view] + view.ancestors %}
+        {% unless owner == Shomen::View || Shomen::View.ancestors.includes?(owner) %}
+          {% for method in owner.methods %}
+            {% sources << method.body.stringify %}
+          {% end %}
+        {% end %}
+      {% end %}
+      ::Shomen::View.check_input_labels({{sources}}, {{view.name.stringify}})
+    {% end %}
   end
 
   # method.body.stringify prints one statement per line with two-space
   # indentation, so a label block's extent is found by indentation.
-  macro check_input_labels(source, type_name)
-    {% lines = source.lines %}
-    {% codes = lines.map { |line| line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") } %}
+  macro check_input_labels(sources, type_name)
     {% fors = [] of Nil %}
-    {% for line, index in lines %}
-      {% if codes[index] =~ /(^|[^.\w])label(\(|\s|$)/ %}
-        {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
-          {% fors << found[1] %}
+    {% for source in sources %}
+      {% for line in source.lines %}
+        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
+        {% if code =~ /(^|[^.\w])(self\.)?label(\(|\s|$)/ %}
+          {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
+            {% fors << found[1] %}
+          {% end %}
         {% end %}
       {% end %}
     {% end %}
-    {% open = [] of Nil %}
-    {% for line, index in lines %}
-      {% code = codes[index] %}
-      {% indent = line.size - line.gsub(/^ +/, "").size %}
-      {% if code.strip == "end" && !open.empty? && open.last >= indent %}
-        {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
-      {% end %}
-      {% if code =~ /(^|[^.\w])label(\(.*\))? do\b/ %}
-        {% open << indent %}
-      {% elsif code =~ /(^|[^.\w])input(\(|\s*$)/ %}
-        {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line.includes?("\"aria-label\": ") %}
-        {% unless ok %}
-          {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
-          {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+    {% for source in sources %}
+      {% open = [] of Nil %}
+      {% for line in source.lines %}
+        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
+        {% indent = line.size - line.gsub(/^ +/, "").size %}
+        {% if code.strip == "end" && !open.empty? && open.last >= indent %}
+          {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
         {% end %}
-        {% unless ok %}
-          {% raise "#{type_name.id} input needs a label: label for: matching id:, a wrapping label, or \"aria-label\"" %}
+        {% if code =~ /(^|[^.\w])(self\.)?label(\(.*\))? do\b/ %}
+          {% open << indent %}
+        {% elsif code =~ /(^|[^.\w])(self\.)?input(\(|\s*$)/ %}
+          {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
+          {% unless ok %}
+            {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
+            {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+          {% end %}
+          {% unless ok %}
+            {% hint = line =~ /\btype: "(submit|reset|button|image)"/ ? "; for a submit, reset, button, or image control, use button instead" : "" %}
+            {% raise "#{type_name.id} input needs a label: a label whose string literal for: matches the input's string literal id:, a wrapping label, or a non-empty \"aria-label\" or \"aria-labelledby\"#{hint.id}" %}
+          {% end %}
         {% end %}
       {% end %}
     {% end %}

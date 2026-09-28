@@ -53,7 +53,53 @@ private class LabeledChild < LabeledBase
   end
 end
 
+private class LabelInOtherMethod < Shomen::View
+  def to_html : String
+    label("Name", for: "name")
+    field
+    result
+  end
+
+  private def field : Nil
+    input(id: "name", name: "name")
+  end
+end
+
+private class LabelingParent < Shomen::View
+  def to_html : String
+    label("Name", for: "name")
+    result
+  end
+end
+
+private class LabeledByParent < LabelingParent
+  def to_html : String
+    input(id: "name", name: "name")
+    result
+  end
+end
+
+private class LabelledBy < Shomen::View
+  def to_html : String
+    h2 "Search", id: "search-heading"
+    self.input(name: "q", "aria-labelledby": "search-heading")
+    result
+  end
+end
+
 describe Shomen::View do
+  it "accepts a label in another method of the same view" do
+    LabelInOtherMethod.new.to_html.should eq("<label for=\"name\">Name</label><input id=\"name\" name=\"name\">")
+  end
+
+  it "accepts a label in a parent view" do
+    LabeledByParent.new.to_html.should eq("<input id=\"name\" name=\"name\">")
+  end
+
+  it "accepts aria-labelledby" do
+    LabelledBy.new.to_html.should contain("<input name=\"q\" aria-labelledby=\"search-heading\">")
+  end
+
   it "accepts inputs with a for label, a wrapping label, aria-label, or hidden type" do
     html = LabeledForm.new.to_html
     html.should contain("<input type=\"hidden\" name=\"_csrf\" value=\"tok\">")
@@ -68,17 +114,32 @@ describe Shomen::View do
   end
 
   {
-    "input_missing_label"     => "an input without a label",
-    "input_label_mismatch"    => "a label whose for does not match the input id",
-    "input_after_label_block" => "an input after a label block closes",
-    "input_label_in_string"   => "a label call that only appears inside a string",
-    "input_in_helper_method"  => "an input whose label is in another method",
+    "input_missing_label"        => "an input without a label",
+    "input_label_mismatch"       => "a label whose for does not match the input id",
+    "input_after_label_block"    => "an input after a label block closes",
+    "input_label_in_string"      => "a label call that only appears inside a string",
+    "input_helper_without_label" => "an input in a helper method of a view without a matching label",
+    "input_in_included_module"   => "an input in a module included into a view",
+    "input_self_call"            => "an input called through self",
+    "input_empty_aria_label"     => "an input with an empty aria-label",
+    "input_dynamic_id"           => "an input whose id is not a string literal",
+    "input_submit_type"          => "a submit input",
   }.each do |fixture, description|
     it "rejects #{description}" do
       status, output = crystal_build_fixture("spec/fixtures/#{fixture}.cr")
       status.should_not eq(0)
       output.should contain("input needs a label")
     end
+  end
+
+  it "says that for: and id: must be string literals" do
+    _, output = crystal_build_fixture("spec/fixtures/input_dynamic_id.cr")
+    output.should contain("string literal")
+  end
+
+  it "points a submit input to button" do
+    _, output = crystal_build_fixture("spec/fixtures/input_submit_type.cr")
+    output.should contain("use button")
   end
 
   it "renders one document with lang, title, button, and alt" do

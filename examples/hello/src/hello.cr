@@ -58,6 +58,26 @@ module Greeting
     end
   end
 
+  class ShowView < Shomen::View
+    def initialize(@name : String)
+    end
+
+    def to_html : String
+      name = @name
+      html lang: "en" do
+        head do
+          title "Greeting"
+        end
+        body do
+          main do
+            h1 "Hello, #{name}"
+            a "Change", href: Greeting::Edit.path
+          end
+        end
+      end
+    end
+  end
+
   class Edit < Shomen::Route
     method GET
     path "/greeting"
@@ -82,10 +102,31 @@ module Greeting
     end
 
     def call(input : Input) : Shomen::Response
-      if input.name.strip.size < 2
+      name = input.name.strip
+      if name.size < 2
         return render EditView.new(input.name, csrf_token, "Name must be at least 2 characters"), status: 422
       end
-      redirect Edit.path
+      # The path helper refuses these characters in a path parameter.
+      if name.includes?('/') || name.includes?('?') || name.includes?('#')
+        return render EditView.new(input.name, csrf_token, "Name must not contain /, ?, or #"), status: 422
+      end
+      redirect Show.path(name: name)
+    end
+  end
+
+  class Show < Shomen::Route
+    method GET
+    path "/greeting/:name"
+
+    struct Input
+      getter name : String
+
+      def initialize(@name : String)
+      end
+    end
+
+    def call(input : Input) : Shomen::Response
+      render ShowView.new(input.name)
     end
   end
 end
