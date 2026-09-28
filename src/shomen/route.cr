@@ -110,19 +110,19 @@ abstract class Shomen::Route
             {% raise "#{@type.name.stringify}.path requires #{pname}" %}
           {% end %}
         {% end %}
-        String.build do |io|
+        String.build do |%io|
           {% for part, index in path_node.split("/") %}
             {% if part.starts_with?(":") %}
               %component = ({{kwargs[part[1..-1]]}}).to_s
               if %component.includes?("/") || %component.includes?("?") || %component.includes?("#")
                 raise ArgumentError.new("invalid path component")
               end
-              io << "/"
-              io << URI.encode_path_segment(%component)
+              %io << "/"
+              %io << URI.encode_path_segment(%component)
             {% elsif part != "" %}
-              io << "/" << {{part}}
+              %io << "/" << {{part}}
             {% elsif index != 0 %}
-              io << "/"
+              %io << "/"
             {% end %}
           {% end %}
         end

@@ -6,7 +6,10 @@ class Shomen::View
     {% unless lang =~ /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/ %}
       {% raise "html lang must look like en or zh-Hant" %}
     {% end %}
-    {% stripped = block.body.stringify.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"") %}
+    # block.body.stringify drops comments and writes every regex literal as /.../.
+    {% stripped = block.body.stringify
+         .gsub(/"(?:[^"\\]|\\.)*"/, "\"\"")
+         .gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
     {% count = stripped.scan(/(^|[^.\w])title\s*(\(|do\b)/).size %}
     {% if count != 1 %}
       {% raise "html document must contain exactly one title, found #{count}" %}

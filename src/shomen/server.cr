@@ -35,17 +35,16 @@ class Shomen::Server
     context.response.status_code = response.status
     context.response.content_type = response.content_type
     response.headers.each do |entry|
-      name, value = entry
-      case value
-      when String
-        context.response.headers[name] = value
-      when Array
-        context.response.headers[name] = value.join(", ")
-      end
+      name, values = entry
+      context.response.headers[name] = values
     end
     context.response.headers["X-Content-Type-Options"] = "nosniff"
     context.response.headers["Referrer-Policy"] = "no-referrer"
     context.response.headers["X-Frame-Options"] = "DENY"
-    context.response.print(response.body)
+    if context.request.method == "HEAD"
+      context.response.content_length = response.body.bytesize
+    else
+      context.response.print(response.body)
+    end
   end
 end

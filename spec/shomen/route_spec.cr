@@ -71,6 +71,11 @@ describe Shomen::Route do
     Users::Show.path(id: 15).should eq("/phase1/users/15")
   end
 
+  it "builds a path when the caller has a variable named io" do
+    io = "alice"
+    Labels::Show.path(name: io.upcase).should eq("/phase1/labels/ALICE")
+  end
+
   it "rejects a path component that would add a segment" do
     expect_raises(ArgumentError) do
       Labels::Show.path(name: "a/b")

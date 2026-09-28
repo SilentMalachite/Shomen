@@ -107,6 +107,33 @@ module ServerRoutes
     end
   end
 
+  class HeadHome < Shomen::Route
+    method HEAD
+    path "/phase1/head"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html("<h1>Hello</h1>")
+    end
+  end
+
+  class Cookies < Shomen::Route
+    method GET
+    path "/phase1/cookies"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      headers = HTTP::Headers.new
+      headers.add("Set-Cookie", "a=1")
+      headers.add("Set-Cookie", "b=2")
+      Shomen::Response.new(200, "text/html; charset=utf-8", "ok", headers)
+    end
+  end
+
   class Update < Shomen::Route
     method POST
     path "/phase1/home"

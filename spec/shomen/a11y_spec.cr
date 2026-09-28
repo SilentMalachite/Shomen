@@ -47,6 +47,17 @@ describe Shomen::View do
     output.should contain("exactly one title")
   end
 
+  it "rejects a document whose only title() is inside a regex literal" do
+    status, output = crystal_build_fixture("spec/fixtures/title_only_in_regex.cr")
+    status.should_not eq(0)
+    output.should contain("exactly one title")
+  end
+
+  it "accepts one title element when a regex literal also contains title()" do
+    status, output = crystal_build_fixture("spec/fixtures/title_with_regex.cr")
+    status.should eq(0)
+  end
+
   it "rejects a button without type" do
     status, output = crystal_build_fixture("spec/fixtures/button_missing_type.cr")
     status.should_not eq(0)
