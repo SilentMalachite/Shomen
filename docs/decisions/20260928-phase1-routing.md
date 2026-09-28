@@ -4,7 +4,7 @@
 
 # 決定
 
-具象サブクラスは `macro inherited` で `Shomen::Route::Hooks` を include し、`handle` をそのクラス自身に定義する。`method` は `GET` `POST` `PUT` `PATCH` `DELETE` `HEAD` だけを受け、`VERB` 定数と `self.verb` を置く。`path` は `/` で始まる文字列リテラルだけを宣言として受け、`PATH` 定数と `self.pattern` を置く。引数なし、またはキーワード引数の `path` 呼び出しは path helper である。静的 path は宣言文字列を返し、パラメータは `URI.encode_path_segment` で 1 セグメントにする。値に `/`、`?`、`#` が含まれるときは `ArgumentError`。照合とキャプチャは宣言と同じ `String#split("/")` を使う。`"/"` の split は `["", ""]` である。空のキャプチャセグメントは不一致。クエリは `HTTP::Request#path` に含まれないので照合しない。
+具象サブクラスは `macro inherited` で `Shomen::Route::Hooks` を include し、`handle` をそのクラス自身に定義する。`method` は `GET` `POST` `PUT` `PATCH` `DELETE` `HEAD` だけを受け、`VERB` 定数と `self.verb` を置く。`path` は `/` で始まる文字列リテラルだけを宣言として受け、`PATH` 定数と `self.pattern` を置く。引数なし、またはキーワード引数の `path` 呼び出しは path helper である。静的 path は宣言文字列を返し、パラメータは `URI.encode_path_segment` で 1 セグメントにする。値に `/`、`?`、`#` が含まれるとき、または値が `.` か `..` のときは `ArgumentError`。ブラウザは `.` と `..` のセグメントを解決して消すので、リンクが別の path を指す。照合とキャプチャは宣言と同じ `String#split("/")` を使う。`"/"` の split は `["", ""]` である。空のキャプチャセグメントは不一致。クエリは `HTTP::Request#path` に含まれないので照合しない。
 
 `handle` は path パラメータと `Input` のインスタンス変数が名前も個数も一致することをコンパイル時に検査する。型は `String`、`Int32`、`Int64` だけ。整数へ変換できない値は `Shomen::BadInput` を上げる。ルート表は `Shomen::Route.all_subclasses` を `Router.entries` の初回呼び出しで走査して作る。具象サブクラスに `VERB` または `PATH` が無いときは、その走査のコンパイルに失敗する。同じメソッドかつ同じ shape（パラメータ名を `:` に潰した path）は `duplicate route` で起動失敗する。リテラルセグメントが多いルートを優先する。`src/shomen/handler.cr` は作らず、`Shomen::Server` が `HTTP::Handler` を include する。
 

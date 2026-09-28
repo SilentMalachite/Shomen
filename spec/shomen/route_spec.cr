@@ -82,6 +82,14 @@ describe Shomen::Route do
     end
   end
 
+  it "rejects a path component that a browser would resolve as a dot segment" do
+    [".", ".."].each do |name|
+      expect_raises(ArgumentError) do
+        Labels::Show.path(name: name)
+      end
+    end
+  end
+
   it "builds Input from the request path" do
     response = Users::Show.handle(HTTP::Request.new("GET", "/phase1/users/15"))
     response.status.should eq(200)
@@ -135,5 +143,12 @@ describe Shomen::Route do
     status, output = crystal_build_fixture("spec/fixtures/route_input_mismatch.cr")
     status.should_not eq(0)
     output.should contain("must match path params")
+  end
+
+  it "renders a view with the status the route asks for" do
+    response = ServerRoutes::Invalid.handle(HTTP::Request.new("POST", "/phase2/invalid"))
+    response.status.should eq(422)
+    response.content_type.should eq("text/html; charset=utf-8")
+    response.body.should contain("<h1>Hello</h1>")
   end
 end

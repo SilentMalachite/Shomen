@@ -64,4 +64,8 @@ abstract class Shomen::View
   def input(**attrs) : Nil
     void_tag("input", attrs)
   end
+
+  def csrf_field(token : String) : Nil
+    void_tag("input", {type: "hidden", name: "_csrf", value: token})
+  end
 end

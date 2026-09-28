@@ -93,7 +93,9 @@ describe Shomen::Server do
   it "sends each Set-Cookie value on its own header" do
     response = call_server("GET", "/phase1/cookies")
     response.status_code.should eq(200)
-    response.headers.get("Set-Cookie").should eq(["a=1", "b=2"])
+    cookies = response.headers.get("Set-Cookie")
+    cookies[0, 2].should eq(["a=1", "b=2"])
+    cookies[2].should start_with("shomen_session=")
     assert_security_headers(response)
   end
 end

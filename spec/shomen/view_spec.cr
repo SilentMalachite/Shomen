@@ -65,12 +65,23 @@ end
 private class VoidProbe < Shomen::View
   def to_html : String
     meta(charset: "utf-8")
-    input(type: "text", name: "q")
+    input(type: "text", name: "q", "aria-label": "Query")
+    result
+  end
+end
+
+private class CsrfProbe < Shomen::View
+  def to_html : String
+    csrf_field("a\"b")
     result
   end
 end
 
 describe Shomen::View do
+  it "writes the csrf field as an escaped hidden input" do
+    CsrfProbe.new.to_html.should eq("<input type=\"hidden\" name=\"_csrf\" value=\"a&quot;b\">")
+  end
+
   %w(head body header main footer nav h1 h2 h3 p div span ul ol li a form label textarea title).each do |tag|
     it "renders #{tag}" do
       html = TagProbe.new(tag, "Hi").to_html
@@ -97,7 +108,7 @@ describe Shomen::View do
   it "renders void elements without a closing tag" do
     html = VoidProbe.new.to_html
     html.should contain("<meta charset=\"utf-8\">")
-    html.should contain("<input type=\"text\" name=\"q\">")
+    html.should contain("<input type=\"text\" name=\"q\" aria-label=\"Query\">")
     html.should_not contain("</input>")
     html.should_not contain("</meta>")
   end

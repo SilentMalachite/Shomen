@@ -1,4 +1,6 @@
 require "spec"
+ENV["SHOMEN_SECRET"] = "spec-secret"
 require "../src/shomen"
 require "./support/process"
+require "./support/client"
 require "./support/routes"
