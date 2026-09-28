@@ -93,7 +93,7 @@ Phase 2 adds these:
 - A compile-time check that every `input` has a label in the same view: a `label` whose `for:` matches the input's `id:` (both string literals), a wrapping `label`, or a non-empty `"aria-label"` or `"aria-labelledby"`. The view's other methods, its parent views, and included modules count. `type: "hidden"` is exempt. For a submit control, use `button`
 - `GET /greeting`, `POST /greeting`, and `GET /greeting/:name` in `examples/hello`
 
-These are specified for later phases and are not in the code: SQLite, commands and events, HTML fragments, the official JavaScript file, SSE, and islands.
+These are specified for later phases and are not in the code: SQLite, commands and events, HTML fragments, the official JavaScript file, SSE, islands, Postgres, and running many identical processes on one database.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 

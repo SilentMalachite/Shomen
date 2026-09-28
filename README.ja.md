@@ -93,7 +93,7 @@ Shomen::Server.start
 - すべての `input` に、同じビューの中のラベルを求めるコンパイル時検査。`for:` が `input` の `id:` と一致する `label`（どちらも文字列リテラル）、囲む `label`、空でない `"aria-label"` か `"aria-labelledby"` のいずれか。ビューの別メソッド、親のビュー、include したモジュールも数える。`type: "hidden"` は対象外。送信には `button` を使う
 - `examples/hello` の `GET /greeting`、`POST /greeting`、`GET /greeting/:name`
 
-SQLite、コマンドとイベント、HTML 断片、公式 JavaScript、SSE、島は、後のフェーズの仕様であり、コードにはありません。
+SQLite、コマンドとイベント、HTML 断片、公式 JavaScript、SSE、島、Postgres、1 つの DB の上で同じプロセスを多数動かすことは、後のフェーズの仕様であり、コードにはありません。
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 
