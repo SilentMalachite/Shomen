@@ -75,55 +75,70 @@ class Shomen::View
   # method.body.stringify writes every block as do ... end, and a block with
   # one statement on a single line, so a label block's extent is found by
   # counting the keywords that open and close a nesting level.
+  #
+  # Stripping strings, regex literals, and a self. with no word before it
+  # never creates the word label or input. So pass 1 skips a source or line
+  # without label, and pass 2 skips a source without input, before the
+  # costly gsub and scan. A label block's end is matched against the depth
+  # where it opened, so outside an open block the absolute depth does not
+  # matter, and pass 2 skips a line there that has neither label nor input.
   macro check_input_labels(sources, type_name)
     {% fors = [] of Nil %}
     {% for source in sources %}
-      {% for line in source.lines %}
-        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
-        {% if code =~ /(^|[^.\w])(self\.)?label(\(|\s|$)/ %}
-          {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
-            {% fors << found[1] %}
+      {% if source.includes?("label") %}
+        {% for line in source.lines %}
+          {% if line.includes?("label") %}
+            {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
+            {% if code =~ /(^|[^.\w])(self\.)?label(\(|\s|$)/ %}
+              {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
+                {% fors << found[1] %}
+              {% end %}
+            {% end %}
           {% end %}
         {% end %}
       {% end %}
     {% end %}
     {% for source in sources %}
-      {% depth = 0 %}
-      {% open = [] of Nil %}
-      {% for line in source.lines %}
-        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "").gsub(/(?<![.\w])self\./, "") %}
-        {% wrapped = nil %}
-        {% after_label = false %}
-        {% for token in code.scan(/(?<![.\w:@$])(label(?=\(| do\b)|input(?=\(|\s*$)|do|end|if|unless|while|until|case|begin)(?![\w?!:])/) %}
-          {% word = token[1] %}
-          {% if word == "do" %}
-            {% if after_label %}
-              {% open << depth %}
+      {% if source.includes?("input") %}
+        {% depth = 0 %}
+        {% open = [] of Nil %}
+        {% for line in source.lines %}
+          {% if !open.empty? || line.includes?("label") || line.includes?("input") %}
+            {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "").gsub(/(?<![.\w])self\./, "") %}
+            {% wrapped = nil %}
+            {% after_label = false %}
+            {% for token in code.scan(/(?<![.\w:@$])(label(?=\(| do\b)|input(?=\(|\s*$)|do|end|if|unless|while|until|case|begin)(?![\w?!:])/) %}
+              {% word = token[1] %}
+              {% if word == "do" %}
+                {% if after_label %}
+                  {% open << depth %}
+                {% end %}
+                {% depth = depth + 1 %}
+              {% elsif word == "end" %}
+                {% depth = depth - 1 %}
+                {% if !open.empty? && open.last == depth %}
+                  {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
+                {% end %}
+              {% elsif word == "input" %}
+                {% if wrapped == nil %}
+                  {% wrapped = !open.empty? %}
+                {% end %}
+              {% elsif word != "label" %}
+                {% depth = depth + 1 %}
+              {% end %}
+              {% after_label = word == "label" %}
             {% end %}
-            {% depth = depth + 1 %}
-          {% elsif word == "end" %}
-            {% depth = depth - 1 %}
-            {% if !open.empty? && open.last == depth %}
-              {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
+            {% unless wrapped == nil %}
+              {% ok = wrapped || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
+              {% unless ok %}
+                {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
+                {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+              {% end %}
+              {% unless ok %}
+                {% hint = line =~ /\btype: "(submit|reset|button|image)"/ ? "; for a submit, reset, button, or image control, use button instead" : "" %}
+                {% raise "#{type_name.id} input needs a label: a label whose string literal for: matches the input's string literal id:, a wrapping label, or a non-empty \"aria-label\" or \"aria-labelledby\"#{hint.id}" %}
+              {% end %}
             {% end %}
-          {% elsif word == "input" %}
-            {% if wrapped == nil %}
-              {% wrapped = !open.empty? %}
-            {% end %}
-          {% elsif word != "label" %}
-            {% depth = depth + 1 %}
-          {% end %}
-          {% after_label = word == "label" %}
-        {% end %}
-        {% unless wrapped == nil %}
-          {% ok = wrapped || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
-          {% unless ok %}
-            {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
-            {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
-          {% end %}
-          {% unless ok %}
-            {% hint = line =~ /\btype: "(submit|reset|button|image)"/ ? "; for a submit, reset, button, or image control, use button instead" : "" %}
-            {% raise "#{type_name.id} input needs a label: a label whose string literal for: matches the input's string literal id:, a wrapping label, or a non-empty \"aria-label\" or \"aria-labelledby\"#{hint.id}" %}
           {% end %}
         {% end %}
       {% end %}
