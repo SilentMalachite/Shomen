@@ -61,6 +61,23 @@ private class InlineLabels < Shomen::View
   end
 end
 
+private class LabelInsideBlocks < Shomen::View
+  def to_html : String
+    div do
+      div do
+        p "Intro"
+      end
+      label do
+        span do
+          text "Query"
+        end
+        input(name: "q")
+      end
+    end
+    result
+  end
+end
+
 private class LabelInOtherMethod < Shomen::View
   def to_html : String
     label("Name", for: "name")
@@ -121,6 +138,10 @@ describe Shomen::View do
     InlineLabels.new.to_html.should eq("<label><input name=\"q\"></label><label><span>Tag</span><input name=\"tag\"></label>")
   end
 
+  it "accepts an input in a label block nested inside other blocks" do
+    LabelInsideBlocks.new.to_html.should eq("<div><div><p>Intro</p></div><label><span>Query</span><input name=\"q\"></label></div>")
+  end
+
   it "checks a view that inherits from another view" do
     LabeledChild.new.to_html.should eq("<label><input name=\"q\"></label>")
   end
@@ -131,6 +152,7 @@ describe Shomen::View do
     "input_after_label_block"         => "an input after a label block closes",
     "input_after_inline_label"        => "an input after a one-line label block",
     "input_after_inline_nested_label" => "an input after a one-line label block that holds a nested block",
+    "input_after_nested_label_block"  => "an input after a label block that holds a nested block",
     "input_label_in_string"           => "a label call that only appears inside a string",
     "input_helper_without_label"      => "an input in a helper method of a view without a matching label",
     "input_in_included_module"        => "an input in a module included into a view",
