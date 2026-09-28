@@ -166,7 +166,7 @@ CSP の厳密化は後のフェーズ。フェーズ 1 では付けてもよい�
 - クッキー名: `shomen_session`
 - HttpOnly, Secure（HTTPS 時）, SameSite=Lax
 - 値は署名付き。秘密鍵は環境変数 `SHOMEN_SECRET`
-- 中身は小さな Key-Value。サーバ側ストアは最初メモリでよい
+- 中身は小さな Key-Value。サーバ側ストアは最初メモリでよい。フェーズ 2 のセッションが持つのは id と、id から導ける値（CSRF トークン）だけ。map は、上限と期限とあわせて、ルートがセッションへ値を書く API を入れるときに置く（`docs/decisions/20260929-phase2-session-store.md`）
 - 認証一式（登録・パスワードリセット・OAuth）は範囲外
 
 ### 7. コマンドとイベント（フェーズ 3）

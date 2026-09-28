@@ -65,6 +65,15 @@ describe Greeting do
     end
   end
 
+  it "redisplays a name of .. with 422" do
+    server = Shomen::Server.new
+    cookie, token = open_form(server)
+    body = URI::Params.encode({"_csrf" => token, "name" => " .. "})
+    response = request(server, "POST", "/greeting", cookie, body)
+    response.status_code.should eq(422)
+    response.body.should contain("Name must not be ..")
+  end
+
   it "rejects a POST without the csrf token" do
     server = Shomen::Server.new
     cookie, _ = open_form(server)

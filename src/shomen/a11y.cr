@@ -72,8 +72,9 @@ class Shomen::View
     {% end %}
   end
 
-  # method.body.stringify prints one statement per line with two-space
-  # indentation, so a label block's extent is found by indentation.
+  # method.body.stringify writes every block as do ... end, and a block with
+  # one statement on a single line, so a label block's extent is found by
+  # counting the keywords that open and close a nesting level.
   macro check_input_labels(sources, type_name)
     {% fors = [] of Nil %}
     {% for source in sources %}
@@ -87,17 +88,35 @@ class Shomen::View
       {% end %}
     {% end %}
     {% for source in sources %}
+      {% depth = 0 %}
       {% open = [] of Nil %}
       {% for line in source.lines %}
-        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") %}
-        {% indent = line.size - line.gsub(/^ +/, "").size %}
-        {% if code.strip == "end" && !open.empty? && open.last >= indent %}
-          {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
+        {% code = line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "").gsub(/(?<![.\w])self\./, "") %}
+        {% wrapped = nil %}
+        {% after_label = false %}
+        {% for token in code.scan(/(?<![.\w:@$])(label(?=\(| do\b)|input(?=\(|\s*$)|do|end|if|unless|while|until|case|begin)(?![\w?!:])/) %}
+          {% word = token[1] %}
+          {% if word == "do" %}
+            {% if after_label %}
+              {% open << depth %}
+            {% end %}
+            {% depth = depth + 1 %}
+          {% elsif word == "end" %}
+            {% depth = depth - 1 %}
+            {% if !open.empty? && open.last == depth %}
+              {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
+            {% end %}
+          {% elsif word == "input" %}
+            {% if wrapped == nil %}
+              {% wrapped = !open.empty? %}
+            {% end %}
+          {% elsif word != "label" %}
+            {% depth = depth + 1 %}
+          {% end %}
+          {% after_label = word == "label" %}
         {% end %}
-        {% if code =~ /(^|[^.\w])(self\.)?label(\(.*\))? do\b/ %}
-          {% open << indent %}
-        {% elsif code =~ /(^|[^.\w])(self\.)?input(\(|\s*$)/ %}
-          {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
+        {% unless wrapped == nil %}
+          {% ok = wrapped || line.includes?("type: \"hidden\"") || line =~ /"aria-label(ledby)?": (?!"")/ %}
           {% unless ok %}
             {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
             {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}

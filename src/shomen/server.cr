@@ -101,7 +101,9 @@ class Shomen::Server
       name, values = entry
       context.response.headers[name] = values
     end
-    if session.fresh?
+    # Behind HTTPS the cookie goes out every time, so one issued over HTTP
+    # before the switch is replaced with a Secure one.
+    if session.fresh? || @https
       context.response.headers.add("Set-Cookie", @sessions.cookie(session, @https).to_set_cookie_header)
     end
     context.response.headers["X-Content-Type-Options"] = "nosniff"

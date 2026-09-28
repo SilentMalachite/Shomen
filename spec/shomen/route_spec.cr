@@ -82,6 +82,14 @@ describe Shomen::Route do
     end
   end
 
+  it "rejects a path component that a browser would resolve as a dot segment" do
+    [".", ".."].each do |name|
+      expect_raises(ArgumentError) do
+        Labels::Show.path(name: name)
+      end
+    end
+  end
+
   it "builds Input from the request path" do
     response = Users::Show.handle(HTTP::Request.new("GET", "/phase1/users/15"))
     response.status.should eq(200)

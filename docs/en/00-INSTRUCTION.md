@@ -166,7 +166,7 @@ A stricter CSP comes later. Phase 1 may attach one, and does not have to.
 - Cookie name: `shomen_session`
 - HttpOnly, Secure on HTTPS, SameSite=Lax
 - The value is signed. The secret is the environment variable `SHOMEN_SECRET`
-- The contents are a small key-value map. The first server-side store may be memory
+- The contents are a small key-value map. The first server-side store may be memory. In phase 2 the session holds only its id and values derived from it (the CSRF token); the map, with its size limit and expiry, comes with the API that lets a route write to the session (`docs/decisions/20260929-phase2-session-store.md`)
 - A full authentication suite (registration, password reset, OAuth) is out of scope
 
 ### 7. Commands and events (phase 3)

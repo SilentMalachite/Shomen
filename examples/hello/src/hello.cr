@@ -110,6 +110,10 @@ module Greeting
       if name.includes?('/') || name.includes?('?') || name.includes?('#')
         return render EditView.new(input.name, csrf_token, "Name must not contain /, ?, or #"), status: 422
       end
+      # The path helper refuses .. too, since a browser resolves /greeting/.. to /.
+      if name == ".."
+        return render EditView.new(input.name, csrf_token, "Name must not be .."), status: 422
+      end
       redirect Show.path(name: name)
     end
   end

@@ -53,6 +53,14 @@ private class LabeledChild < LabeledBase
   end
 end
 
+private class InlineLabels < Shomen::View
+  def to_html : String
+    label { input(name: "q") }
+    label { span { text "Tag" }; input(name: "tag") }
+    result
+  end
+end
+
 private class LabelInOtherMethod < Shomen::View
   def to_html : String
     label("Name", for: "name")
@@ -109,21 +117,27 @@ describe Shomen::View do
     html.should contain("<input type=\"hidden\" name=\"step\" value=\"1\">")
   end
 
+  it "accepts inputs inside one-line label blocks" do
+    InlineLabels.new.to_html.should eq("<label><input name=\"q\"></label><label><span>Tag</span><input name=\"tag\"></label>")
+  end
+
   it "checks a view that inherits from another view" do
     LabeledChild.new.to_html.should eq("<label><input name=\"q\"></label>")
   end
 
   {
-    "input_missing_label"        => "an input without a label",
-    "input_label_mismatch"       => "a label whose for does not match the input id",
-    "input_after_label_block"    => "an input after a label block closes",
-    "input_label_in_string"      => "a label call that only appears inside a string",
-    "input_helper_without_label" => "an input in a helper method of a view without a matching label",
-    "input_in_included_module"   => "an input in a module included into a view",
-    "input_self_call"            => "an input called through self",
-    "input_empty_aria_label"     => "an input with an empty aria-label",
-    "input_dynamic_id"           => "an input whose id is not a string literal",
-    "input_submit_type"          => "a submit input",
+    "input_missing_label"             => "an input without a label",
+    "input_label_mismatch"            => "a label whose for does not match the input id",
+    "input_after_label_block"         => "an input after a label block closes",
+    "input_after_inline_label"        => "an input after a one-line label block",
+    "input_after_inline_nested_label" => "an input after a one-line label block that holds a nested block",
+    "input_label_in_string"           => "a label call that only appears inside a string",
+    "input_helper_without_label"      => "an input in a helper method of a view without a matching label",
+    "input_in_included_module"        => "an input in a module included into a view",
+    "input_self_call"                 => "an input called through self",
+    "input_empty_aria_label"          => "an input with an empty aria-label",
+    "input_dynamic_id"                => "an input whose id is not a string literal",
+    "input_submit_type"               => "a submit input",
   }.each do |fixture, description|
     it "rejects #{description}" do
       status, output = crystal_build_fixture("spec/fixtures/#{fixture}.cr")

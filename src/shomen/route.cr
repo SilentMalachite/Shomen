@@ -125,7 +125,8 @@ abstract class Shomen::Route
           {% for part, index in path_node.split("/") %}
             {% if part.starts_with?(":") %}
               %component = ({{kwargs[part[1..-1]]}}).to_s
-              if %component.includes?("/") || %component.includes?("?") || %component.includes?("#")
+              # A browser resolves a "." or ".." segment away, so the link would lose it.
+              if %component.includes?("/") || %component.includes?("?") || %component.includes?("#") || %component == "." || %component == ".."
                 raise ArgumentError.new("invalid path component")
               end
               %io << "/"

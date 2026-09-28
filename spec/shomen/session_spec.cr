@@ -35,4 +35,12 @@ describe "Shomen::Server sessions" do
     header = session_header(call_with(Shomen::Server.new(https: true), "GET", "/phase1/home"))
     header.should contain("Secure")
   end
+
+  it "sets a cookie issued over HTTP again with Secure once the server runs behind HTTPS" do
+    cookie = session_cookie(call_with(Shomen::Server.new(secret: "s"), "GET", "/phase1/home"))
+    response = call_with(Shomen::Server.new(secret: "s", https: true), "GET", "/phase1/home", cookie: cookie)
+    header = session_header(response)
+    header.should start_with(cookie + ";")
+    header.should contain("Secure")
+  end
 end
