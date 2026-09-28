@@ -54,4 +54,45 @@ class Shomen::View
     {% end %}
     @out << ">"
   end
+
+  macro inherited
+    macro method_added(method)
+      ::Shomen::View.check_input_labels(\{{method.body.stringify}}, \{{@type.name.stringify}})
+    end
+  end
+
+  # method.body.stringify prints one statement per line with two-space
+  # indentation, so a label block's extent is found by indentation.
+  macro check_input_labels(source, type_name)
+    {% lines = source.lines %}
+    {% codes = lines.map { |line| line.gsub(/"(?:[^"\\]|\\.)*"/, "\"\"").gsub(/\/(?:\\.|[^\/\n])*\/[a-z]*/, "") } %}
+    {% fors = [] of Nil %}
+    {% for line, index in lines %}
+      {% if codes[index] =~ /(^|[^.\w])label(\(|\s|$)/ %}
+        {% for found in line.scan(/\bfor: "((?:[^"\\]|\\.)*)"/) %}
+          {% fors << found[1] %}
+        {% end %}
+      {% end %}
+    {% end %}
+    {% open = [] of Nil %}
+    {% for line, index in lines %}
+      {% code = codes[index] %}
+      {% indent = line.size - line.gsub(/^ +/, "").size %}
+      {% if code.strip == "end" && !open.empty? && open.last >= indent %}
+        {% open = open.size == 1 ? [] of Nil : open[0..-2] %}
+      {% end %}
+      {% if code =~ /(^|[^.\w])label(\(.*\))? do\b/ %}
+        {% open << indent %}
+      {% elsif code =~ /(^|[^.\w])input(\(|\s*$)/ %}
+        {% ok = !open.empty? || line.includes?("type: \"hidden\"") || line.includes?("\"aria-label\": ") %}
+        {% unless ok %}
+          {% ids = line.scan(/\bid: "((?:[^"\\]|\\.)*)"/) %}
+          {% ok = !ids.empty? && fors.includes?(ids[0][1]) %}
+        {% end %}
+        {% unless ok %}
+          {% raise "#{type_name.id} input needs a label: label for: matching id:, a wrapping label, or \"aria-label\"" %}
+        {% end %}
+      {% end %}
+    {% end %}
+  end
 end

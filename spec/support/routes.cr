@@ -145,4 +145,86 @@ module ServerRoutes
       Shomen::Response.html("posted")
     end
   end
+
+  class Token < Shomen::Route
+    method GET
+    path "/phase2/token"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html(csrf_token)
+    end
+  end
+
+  class Echo < Shomen::Route
+    method POST
+    path "/phase2/echo"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html("accepted")
+    end
+  end
+
+  class Denied < Shomen::Route
+    method GET
+    path "/phase2/denied"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      raise Shomen::Forbidden.new
+    end
+  end
+
+  class Signup < Shomen::Route
+    method POST
+    path "/phase2/signup"
+
+    struct Input
+      getter name : String
+      getter age : Int32
+
+      def initialize(@name : String, @age : Int32)
+      end
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html(Shomen::HTML.escape("#{input.name}:#{input.age}"))
+    end
+  end
+
+  class Rename < Shomen::Route
+    method POST
+    path "/phase2/people/:id"
+
+    struct Input
+      getter id : Int64
+      getter name : String
+
+      def initialize(@id : Int64, @name : String)
+      end
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html(Shomen::HTML.escape("#{input.id}:#{input.name}"))
+    end
+  end
+
+  class Invalid < Shomen::Route
+    method POST
+    path "/phase2/invalid"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      render HomeView.new, status: 422
+    end
+  end
 end

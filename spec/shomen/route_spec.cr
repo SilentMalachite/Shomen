@@ -136,4 +136,11 @@ describe Shomen::Route do
     status.should_not eq(0)
     output.should contain("must match path params")
   end
+
+  it "renders a view with the status the route asks for" do
+    response = ServerRoutes::Invalid.handle(HTTP::Request.new("POST", "/phase2/invalid"))
+    response.status.should eq(422)
+    response.content_type.should eq("text/html; charset=utf-8")
+    response.body.should contain("<h1>Hello</h1>")
+  end
 end

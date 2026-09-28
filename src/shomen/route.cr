@@ -2,9 +2,11 @@ require "http"
 require "uri"
 
 abstract class Shomen::Route
+  property csrf_token : String = ""
+
   module Hooks
     macro included
-      def self.handle(request : HTTP::Request) : Shomen::Response
+      def self.handle(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response
         {% verbatim do %}
           {% begin %}
             {% path_node = @type.constant("PATH") %}
@@ -25,31 +27,40 @@ abstract class Shomen::Route
             {% for ivar in input.instance_vars %}
               {% ivars[ivar.name.stringify] = ivar.type.stringify %}
             {% end %}
-            {% if ivars.size != params.size %}
+            {% verb = @type.constant("VERB") %}
+            {% reads_form = verb != "GET" && verb != "HEAD" %}
+            {% fields = ivars.keys.reject { |name| params.includes?(name) } %}
+            {% if params.any? { |name| ivars[name].is_a?(NilLiteral) } || (!reads_form && !fields.empty?) %}
               {% raise "#{@type.name.stringify} Input must match path params #{params}, found #{ivars.keys}" %}
             {% end %}
-            {% for pname in params %}
-              {% typ = ivars[pname] %}
+            {% for name in ivars.keys %}
+              {% typ = ivars[name] %}
               {% unless typ == "Int32" || typ == "Int64" || typ == "String" %}
-                {% raise "#{@type.name.stringify} field #{pname} has type #{typ}, want String, Int32, or Int64" %}
+                {% raise "#{@type.name.stringify} field #{name} has type #{typ}, want String, Int32, or Int64" %}
               {% end %}
             {% end %}
             captures = ::Shomen::Router.captures!(PATH, request.path)
             input = Input.new(
-              {% for pname in params %}
-                {{pname.id}}: begin
-                  raw = captures[{{pname}}]
-                  {% if ivars[pname] == "Int32" %}
-                    raw.to_i32?(whitespace: false) || raise ::Shomen::BadInput.new("invalid " + {{pname}})
-                  {% elsif ivars[pname] == "Int64" %}
-                    raw.to_i64?(whitespace: false) || raise ::Shomen::BadInput.new("invalid " + {{pname}})
+              {% for name in ivars.keys %}
+                {{name.id}}: begin
+                  {% if params.includes?(name) %}
+                    raw = captures[{{name}}]
+                  {% else %}
+                    raw = form[{{name}}]? || raise ::Shomen::BadInput.new("missing " + {{name}})
+                  {% end %}
+                  {% if ivars[name] == "Int32" %}
+                    raw.to_i32?(whitespace: false) || raise ::Shomen::BadInput.new("invalid " + {{name}})
+                  {% elsif ivars[name] == "Int64" %}
+                    raw.to_i64?(whitespace: false) || raise ::Shomen::BadInput.new("invalid " + {{name}})
                   {% else %}
                     raw
                   {% end %}
                 end,
               {% end %}
             )
-            new.call(input)
+            route = new
+            route.csrf_token = csrf_token
+            route.call(input)
           {% end %}
         {% end %}
       end
@@ -132,8 +143,8 @@ abstract class Shomen::Route
     {% end %}
   end
 
-  def render(view : Shomen::View) : Shomen::Response
-    Shomen::Response.html(view.to_html)
+  def render(view : Shomen::View, status : Int32 = 200) : Shomen::Response
+    Shomen::Response.html(view.to_html, status)
   end
 
   def redirect(location : String, status : Int32 = 303) : Shomen::Response

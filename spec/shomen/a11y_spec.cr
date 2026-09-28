@@ -21,7 +21,66 @@ private class Page < Shomen::View
   end
 end
 
+private class LabeledForm < Shomen::View
+  def to_html : String
+    form(action: "/save", method: "post") do
+      csrf_field("tok")
+      label("Name", for: "name")
+      input(id: "name", name: "name", type: "text")
+      label do
+        text "Email"
+        input(name: "email", type: "email")
+      end
+      input(name: "q", type: "search", "aria-label": "Search")
+      input(type: "hidden", name: "step", value: "1")
+    end
+    result
+  end
+end
+
+private class LabeledBase < Shomen::View
+  def to_html : String
+    result
+  end
+end
+
+private class LabeledChild < LabeledBase
+  def to_html : String
+    label do
+      input(name: "q")
+    end
+    result
+  end
+end
+
 describe Shomen::View do
+  it "accepts inputs with a for label, a wrapping label, aria-label, or hidden type" do
+    html = LabeledForm.new.to_html
+    html.should contain("<input type=\"hidden\" name=\"_csrf\" value=\"tok\">")
+    html.should contain("<label for=\"name\">Name</label><input id=\"name\" name=\"name\" type=\"text\">")
+    html.should contain("<label>Email<input name=\"email\" type=\"email\"></label>")
+    html.should contain("<input name=\"q\" type=\"search\" aria-label=\"Search\">")
+    html.should contain("<input type=\"hidden\" name=\"step\" value=\"1\">")
+  end
+
+  it "checks a view that inherits from another view" do
+    LabeledChild.new.to_html.should eq("<label><input name=\"q\"></label>")
+  end
+
+  {
+    "input_missing_label"     => "an input without a label",
+    "input_label_mismatch"    => "a label whose for does not match the input id",
+    "input_after_label_block" => "an input after a label block closes",
+    "input_label_in_string"   => "a label call that only appears inside a string",
+    "input_in_helper_method"  => "an input whose label is in another method",
+  }.each do |fixture, description|
+    it "rejects #{description}" do
+      status, output = crystal_build_fixture("spec/fixtures/#{fixture}.cr")
+      status.should_not eq(0)
+      output.should contain("input needs a label")
+    end
+  end
+
   it "renders one document with lang, title, button, and alt" do
     html = Page.new.to_html
     html.should start_with("<!DOCTYPE html><html lang=\"zh-Hant\">")
