@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Grok Build と Claude Code の共通ルール。両ツールともこのファイルを正本にする。
-詳細仕様は `docs/00-INSTRUCTION.md` から読む。チャット履歴は正本ではない。
+詳細仕様の正本は `docs/en/00-INSTRUCTION.md`。日本語訳は `docs/00-INSTRUCTION.md`。チャット履歴は正本ではない。
 
 ## 役割
 
@@ -10,12 +10,12 @@ Shomen を Crystal 1.20 以上で実装する。既存の Amber / Lucky / Kemal 
 ## 着手順
 
 1. このファイル
-2. `docs/00-INSTRUCTION.md`
-3. `docs/01-ARCHITECTURE.md`
-4. `docs/02-PHASES.md` の「今やるフェーズ」だけ
-5. `docs/03-CONVENTIONS.md`
+2. `docs/en/00-INSTRUCTION.md`（日本語訳は `docs/00-INSTRUCTION.md`）
+3. `docs/en/01-ARCHITECTURE.md`
+4. `docs/en/02-PHASES.md` の現行フェーズだけ
+5. `docs/en/03-CONVENTIONS.md`
 
-今やるフェーズは `docs/02-PHASES.md` の先頭にある「現行フェーズ」に従う。指定より先のフェーズを実装しない。
+今やるフェーズは `docs/en/02-PHASES.md` の先頭にある「Current phase」に従う。指定より先のフェーズを実装しない。
 
 ## やってはいけないこと
 
@@ -23,7 +23,7 @@ Shomen を Crystal 1.20 以上で実装する。既存の Amber / Lucky / Kemal 
 - 「あると便利」なジェネレータ、プラグイン機構、管理画面、テーマ、GraphQL、SPA ルーターを先に作る
 - Lucky / Amber / Rails 互換レイヤを作る
 - 既存フレームワークを wrap して完成扱いにする
-- README やコメントで仕様を再発明する。仕様変更は `docs/` を先に直す
+- README やコメントで仕様を再発明する。仕様変更は `docs/en/` を先に直し、日本語訳も同じ変更で更新する
 - コミットやタグを勝手に増やさない（ユーザーが指示したときだけ）
 - サンプルアプリをフレームワーク本体に埋め込む。サンプルは `examples/` のみ
 - JavaScript バンドラを本体のビルドに必須にしない
@@ -59,7 +59,8 @@ cd examples/hello && shards install && crystal spec
 ## 言語
 
 - コード・識別子・コミットメッセージ案は英語
-- 文書は日本語
+- 仕様と GitHub 向け README / CONTRIBUTING の正本は英語。日本語訳を併置し、食い違ったら英語に合わせる
+- 決定ログ、`docs/superpowers/`、このファイルは日本語
 - ユーザーへの進捗説明は日本語
 
 ## 不明点

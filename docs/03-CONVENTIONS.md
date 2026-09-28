@@ -1,5 +1,7 @@
 # 03 規約
 
+> 日本語訳です。正本は [docs/en/03-CONVENTIONS.md](en/03-CONVENTIONS.md) です。食い違ったら英語に合わせ、このファイルを直します。
+
 ## コード
 
 - 公開型は `Shomen::` 配下
@@ -17,9 +19,12 @@
 
 ## 文書
 
-- 仕様変更はコードより先に `docs/` を直す
-- 決定は `docs/decisions/YYYYMMDD-short-name.md`
+- 仕様変更はコードより先に文書を直す
+- 仕様、ルートの `README.md`、`CONTRIBUTING.md` の正本は `docs/en/` とリポジトリ直下の英語ファイル
+- 日本語訳は `docs/00-INSTRUCTION.md` から `docs/03-CONVENTIONS.md`、`README.ja.md`、`CONTRIBUTING.ja.md`。英語を変えた同じ変更で訳も更新する
+- 決定は `docs/decisions/YYYYMMDD-short-name.md`。言語は日本語
 - 決定ファイルの中身は「状況 / 決定 / 理由 / 破棄した案」だけ
+- `docs/superpowers/` の作業メモは日本語のまま残す
 
 ## Git
 
