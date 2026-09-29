@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 5 — SSE and islands**
+**Phase 6 — Postgres and production hardening**
 
-Phase 5 acceptance is met. Do not implement past this point (phase 6 and later). Wait for the next instruction.
+Phase 6 acceptance is met. Do not implement past this point (phase 7 and later). Wait for the next instruction.
 
 ---
 
@@ -143,8 +143,6 @@ Acceptance:
 - While one append transaction is open after its insert, an append from another process waits until the first commits
 - Concurrent appends from two processes: a projection that follows its checkpoint receives every event once, in `id` order
 - After SIGTERM, a request in progress (other than an SSE stream) completes with its normal response and `Connection: close`, an idle keep-alive connection is closed, a new connection is refused, and the process exits within the limit
-
-This phase does not start until the user asks for it.
 
 ---
 
