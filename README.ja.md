@@ -4,14 +4,14 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 4 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、追記のみの SQLite イベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答が動きます。それより後のフェーズは仕様にあり、実装はまだありません。リリースタグもまだありません。
+バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 5 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、追記のみの SQLite イベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島が動きます。それより後のフェーズは仕様にあり、実装はまだありません。リリースタグもまだありません。
 
 ## 必要なもの
 
 - Crystal 1.20 以上
 - shards
 - SQLite 3 のライブラリ（`libsqlite3`）
-- Google Chrome か Chromium（`shomen.js` の spec を走らせるときだけ。無ければその spec は pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます）
+- Google Chrome か Chromium（ブラウザの spec、つまり `shomen.js` と `examples/hello` のカウンターの spec を走らせるときだけ。無ければその spec は pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます）
 
 フレームワーク本体の shard は crystal-lang の `sqlite3` と `db` に依存します。
 
@@ -75,7 +75,7 @@ Shomen::Server.start
 
 サーバの待受は `127.0.0.1:3000` です。一致したルートは 200 の HTML、パスパラメータの変換失敗は 400、未知のパスと `Shomen::NotFound` は 404 の HTML、処理されない例外はメッセージをエスケープした 500 の HTML です。すべての応答に `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY` が付きます。
 
-## いま動くのはフェーズ 1 から 4
+## いま動くのはフェーズ 1 から 5
 
 フェーズ 1 で入っているもの:
 
@@ -112,7 +112,13 @@ Shomen::Server.start
 - `json(value, status = 200)`: `application/json` を返します。サーバが自分で JSON を選ぶことはなく、エラーは HTML 文書のままです
 - `examples/hello` の挨拶フォームは断片です。「Change」でその場にフォームが開き、422 ではフォームだけが差し替わります
 
-SSE、島、Postgres、1 つの DB の上で同じプロセスを多数動かすことは、後のフェーズの仕様であり、コードにはありません。
+フェーズ 5 で足したもの:
+
+- `sse(store) { 断片 }`: イベントストリームです。断片を今描き、このプロセスで `store` に追記があるたびに描き直し、HTML が変わったときに送ります。`<div data-shomen-sse="URL">` があると `shomen.js` がストリームを開き、断片はその要素の中の同じ `id` の要素を置き換えます。他のプロセスの追記が届くのは後のフェーズです
+- `Shomen::Island.script "name", "file.js"`: アプリの ES モジュールをコンパイル時に読み、`/islands/name.js` で配ります。`shomen.js` は `data-shomen-island="name"` の要素ごとに、その要素を渡してモジュールの既定のエクスポートを呼びます。フレームワークは島の外の要素にイベントリスナーを付けません
+- `examples/hello` の `GET /counter` にカウンターの島があります
+
+Postgres と、1 つの DB の上で同じプロセスを多数動かすことは、後のフェーズの仕様であり、コードにはありません。
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 

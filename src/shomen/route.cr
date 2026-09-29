@@ -184,6 +184,15 @@ abstract class Shomen::Route
     Shomen::Response.new(status, "application/json", value.to_json)
   end
 
+  # Opts this GET route into an event stream for an element with
+  # data-shomen-sse. fragment renders now and again after each append to
+  # store in this process; the stream sends its HTML whenever it changed.
+  def sse(store : Shomen::Store, heartbeat : Time::Span = Shomen::SSE::HEARTBEAT, &fragment : -> Shomen::Fragment) : Shomen::Response
+    # Crystal types a method by its body, not its return restriction; the cast
+    # keeps Router's Proc(..., Shomen::Response) from becoming Proc(..., SSE).
+    Shomen::SSE.new(store, fragment, heartbeat).as(Shomen::Response)
+  end
+
   def redirect(location : String, status : Int32 = 303) : Shomen::Response
     Shomen::Response.redirect(location, status)
   end

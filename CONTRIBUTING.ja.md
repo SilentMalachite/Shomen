@@ -44,7 +44,7 @@ cd examples/hello && shards install && crystal spec
 
 `crystal build` はルートに `./shomen` を書き出します。コミットには含めません。
 
-spec はハンドラを直接呼ぶか、フィクスチャをビルドします。固定の公開ポートは取りません。`shomen.js` の spec は 127.0.0.1 の一時ポートで待ち受け、ヘッドレスの Chrome を動かします。Chrome が無ければ pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます。
+spec はハンドラを直接呼ぶか、フィクスチャをビルドします。固定の公開ポートは取りません。`shomen.js` の spec と `examples/hello` のカウンターの spec は 127.0.0.1 の一時ポートで待ち受け、ヘッドレスの Chrome を動かします。Chrome が無ければ pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます。SSE の spec はストリームをパイプ越しに読みます。
 
 ## コミット
 

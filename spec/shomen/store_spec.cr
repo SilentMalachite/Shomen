@@ -256,4 +256,43 @@ describe Shomen::Store do
       2.times { done.receive }
     end
   end
+
+  it "tells this process the last id it appended, through any store on the file" do
+    with_store do |store, path|
+      store.last_appended.should eq(0_i64)
+      store.append("a", 0_i64, [SpecEvents::Noted.new("1"), SpecEvents::Noted.new("2")] of Shomen::Event)
+      store.last_appended.should eq(2_i64)
+      other = Shomen::Store.new("sqlite3://#{path}")
+      begin
+        other.last_appended.should eq(2_i64)
+        other.append("b", 0_i64, note("3"))
+        store.last_appended.should eq(3_i64)
+      ensure
+        other.close
+      end
+    end
+  end
+
+  it "announces nothing for an append that conflicts" do
+    with_store do |store|
+      store.append("a", 0_i64, note("1"))
+      expect_raises(Shomen::Conflict) { store.append("a", 0_i64, note("2")) }
+      store.last_appended.should eq(1_i64)
+    end
+  end
+
+  it "wakes a fiber that waits for an append in this process" do
+    with_store do |store|
+      woke = Channel(Bool).new(1)
+      spawn { woke.send(store.wait_for_append(after: 0_i64, within: 5.seconds)) }
+      Fiber.yield
+      store.append("a", 0_i64, note("1"))
+      select
+      when value = woke.receive
+        value.should be_true
+      when timeout(5.seconds)
+        fail "the waiting fiber did not wake"
+      end
+    end
+  end
 end

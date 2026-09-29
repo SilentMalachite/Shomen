@@ -116,8 +116,16 @@ class Shomen::Server
     context.response.headers["X-Frame-Options"] = "DENY"
     if context.request.method == "HEAD"
       context.response.content_length = response.body.bytesize
+    elsif response.is_a?(Shomen::SSE)
+      stream(context.response, response)
     else
       context.response.print(response.body)
     end
+  end
+
+  # A write fails once the client has left, and that ends the stream.
+  private def stream(output : HTTP::Server::Response, sse : Shomen::SSE) : Nil
+    sse.run(output)
+  rescue HTTP::Server::ClientError
   end
 end
