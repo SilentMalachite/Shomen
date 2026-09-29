@@ -4,13 +4,14 @@
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 to 3 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only SQLite event store, and in-memory projections. Later phases are specified and not implemented. There is no release tag yet.
+Version 0.0.0. Phases 1 to 4 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only SQLite event store, in-memory projections, HTML fragments, the official `shomen.js`, and JSON responses. Later phases are specified and not implemented. There is no release tag yet.
 
 ## Requirements
 
 - Crystal 1.20 or newer
 - shards
 - The SQLite 3 library (`libsqlite3`)
+- Google Chrome or Chromium, only to run the `shomen.js` specs. Without it they are pending. `SHOMEN_CHROME` names the binary
 
 The framework shard depends on `sqlite3` and `db` from crystal-lang.
 
@@ -74,7 +75,7 @@ Shomen::Server.start
 
 The server listens on `127.0.0.1:3000`. A match returns 200 HTML. A bad path parameter returns 400. An unknown path, or `Shomen::NotFound`, returns 404 HTML. An unhandled exception returns 500 HTML with the message escaped. Every response sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `X-Frame-Options: DENY`.
 
-## Phases 1 to 3 are what run
+## Phases 1 to 4 are what run
 
 Phase 1 builds these:
 
@@ -102,7 +103,16 @@ Phase 3 adds these:
 - `Shomen::Projection`: `apply` each event; `catch_up` applies the events after the checkpoint, including events another process appended. Call it before a view reads, and once before `Shomen::Server.start` to rebuild at startup
 - `GET /users/:id/edit`, `POST /users/:id`, and `GET /users/:id` in `examples/hello`
 
-These are specified for later phases and are not in the code: HTML fragments, JSON responses, the official JavaScript file, SSE, islands, Postgres, and running many identical processes on one database.
+Phase 4 adds these:
+
+- `Shomen::Fragment`: a view of one element. It implements `content`, and writing `html` in it fails at compile time. A document view puts it in with `embed`
+- `render_fragment(fragment)`: sends the fragment alone. `render` with a fragment fails at compile time
+- `shomen.js`, served at `/shomen.js`. `shomen_script` writes its `script` element. `<a href="..." data-shomen-get="ID">` and `<form method="post" action="..." data-shomen-post="ID">` fetch with the `Shomen-Target: ID` header and replace the element with that id. A redirect loads the new page. Without JavaScript the same link and form load pages as before
+- `target`: the id from `Shomen-Target`, or `nil`. A route answers `target ? render_fragment(...) : render(...)`. Every response has `Vary: Shomen-Target`
+- `json(value, status = 200)`: `application/json`. The server never chooses JSON on its own, and errors stay HTML documents
+- In `examples/hello`, the greeting form is a fragment: "Change" opens it in place, and a 422 replaces only the form
+
+These are specified for later phases and are not in the code: SSE, islands, Postgres, and running many identical processes on one database.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 
