@@ -48,6 +48,8 @@ Specs call the handler directly or build a fixture. They do not bind a fixed pub
 
 The Postgres specs run only when `SHOMEN_SPEC_POSTGRES` names a Postgres URL whose user may create databases (for example `postgres://localhost/postgres`); without it they are pending. Each example creates a database named `shomen_spec_...` and drops it. The shutdown, `reuse_port`, and two-process specs build `spec/support/server_worker.cr` once, start it on an ephemeral port on 127.0.0.1, and wait for lines on its output instead of sleeping. Before calling a phase done, run `crystal spec` with `SHOMEN_SPEC_POSTGRES` set.
 
+On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), and the `examples/hello` specs. Wait for that check to pass before asking for review.
+
 ## Commits
 
 ```

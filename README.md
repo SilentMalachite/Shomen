@@ -1,5 +1,8 @@
 # Shomen
 
+[![CI](https://github.com/SilentMalachite/Shomen/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SilentMalachite/Shomen/actions/workflows/ci.yml)
+[![Crystal](https://img.shields.io/badge/Crystal-%3E%3D%201.20-000000?logo=crystal&logoColor=white)](https://crystal-lang.org/)
+
 [English](README.md) | [日本語](README.ja.md)
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
@@ -158,6 +161,8 @@ cd examples/hello && shards install && crystal spec
 ```
 
 Without `SHOMEN_SPEC_POSTGRES` the Postgres specs are pending. To run them, set it to a Postgres URL whose user may create databases, such as `SHOMEN_SPEC_POSTGRES=postgres://localhost/postgres crystal spec`. Each example creates a database and drops it.
+
+On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), and the `examples/hello` specs.
 
 `crystal build` writes `./shomen`. Do not commit that binary.
 

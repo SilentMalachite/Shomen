@@ -48,6 +48,8 @@ spec はハンドラを直接呼ぶか、フィクスチャをビルドします
 
 Postgres の spec は、`SHOMEN_SPEC_POSTGRES` に DB を作れるユーザーの Postgres の URL（例 `postgres://localhost/postgres`）を入れたときだけ走ります。無ければ pending です。例ごとに `shomen_spec_...` という DB を作り、終わったら消します。シャットダウン、`reuse_port`、2 プロセスの spec は、`spec/support/server_worker.cr` を 1 回ビルドして 127.0.0.1 の一時ポートで起動し、sleep ではなく出力の行を待ちます。フェーズを終える前に、`SHOMEN_SPEC_POSTGRES` を付けて `crystal spec` を走らせます。
 
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec を走らせます。このチェックが通ってから、プルリクエストをレビューに出します。
+
 ## コミット
 
 ```
