@@ -73,4 +73,39 @@ describe Shomen::SessionStore do
     store = Shomen::SessionStore.new("k")
     store.cookie(store.load(nil), true).to_set_cookie_header.should contain("Secure")
   end
+
+  it "loads a cookie signed with the verify secret and marks it for reissue" do
+    old = Shomen::SessionStore.new("old")
+    first = old.load(nil)
+    rotated = Shomen::SessionStore.new("new", "old")
+    again = rotated.load(cookie_value(old, first))
+    again.fresh?.should be_false
+    again.reissue?.should be_true
+    again.id.should eq(first.id)
+    again.csrf_token.should_not eq(first.csrf_token)
+  end
+
+  it "does not reissue a cookie signed with the secret" do
+    store = Shomen::SessionStore.new("new", "old")
+    first = store.load(nil)
+    store.load(cookie_value(store, first)).reissue?.should be_false
+  end
+
+  it "signs only with the secret" do
+    store = Shomen::SessionStore.new("new", "old")
+    value = cookie_value(store, store.load(nil))
+    Shomen::SessionStore.new("new").load(value).fresh?.should be_false
+    Shomen::SessionStore.new("old").load(value).fresh?.should be_true
+  end
+
+  it "accepts a csrf token made with either secret" do
+    old = Shomen::SessionStore.new("old")
+    first = old.load(nil)
+    rotated = Shomen::SessionStore.new("new", "old")
+    again = rotated.load(cookie_value(old, first))
+    rotated.csrf_valid?(again, first.csrf_token).should be_true
+    rotated.csrf_valid?(again, again.csrf_token).should be_true
+    rotated.csrf_valid?(again, "wrong").should be_false
+    Shomen::SessionStore.new("new").csrf_valid?(again, first.csrf_token).should be_false
+  end
 end

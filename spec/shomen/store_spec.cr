@@ -6,103 +6,90 @@ private def texts(rows : Array(Shomen::Recorded)) : Array(String)
 end
 
 describe Shomen::Store do
-  it "numbers each stream from 1 and orders ids across streams" do
-    with_store do |store|
-      store.append("a", 0_i64, note("a1"))
-      store.append("b", 0_i64, note("b1"))
-      store.append("a", 1_i64, [SpecEvents::Noted.new("a2"), SpecEvents::Noted.new("a3")] of Shomen::Event)
-      rows = store.read(after: 0_i64)
-      rows.map { |row| {row.id, row.stream, row.version} }.should eq([
-        {1_i64, "a", 1_i64}, {2_i64, "b", 1_i64}, {3_i64, "a", 2_i64}, {4_i64, "a", 3_i64},
-      ])
-      texts(rows).should eq(%w(a1 b1 a2 a3))
-    end
+  store_it "numbers each stream from 1 and orders ids across streams" do |store, _|
+    store.append("a", 0_i64, note("a1"))
+    store.append("b", 0_i64, note("b1"))
+    store.append("a", 1_i64, [SpecEvents::Noted.new("a2"), SpecEvents::Noted.new("a3")] of Shomen::Event)
+    rows = store.read(after: 0_i64)
+    rows.map { |row| {row.id, row.stream, row.version} }.should eq([
+      {1_i64, "a", 1_i64}, {2_i64, "b", 1_i64}, {3_i64, "a", 2_i64}, {4_i64, "a", 3_i64},
+    ])
+    texts(rows).should eq(%w(a1 b1 a2 a3))
   end
 
-  it "reads only the events after a given id, up to the limit" do
-    with_store do |store|
-      5.times { |index| store.append("s", index.to_i64, note("n#{index}")) }
-      store.read(after: 2_i64, limit: 2).map(&.id).should eq([3_i64, 4_i64])
-      store.read(after: 5_i64).should be_empty
-    end
+  store_it "reads only the events after a given id, up to the limit" do |store, _|
+    5.times { |index| store.append("s", index.to_i64, note("n#{index}")) }
+    store.read(after: 2_i64, limit: 2).map(&.id).should eq([3_i64, 4_i64])
+    store.read(after: 5_i64).should be_empty
   end
 
-  it "appends two rows when the same command is handled twice" do
-    with_store do |store|
-      2.times do |version|
-        events = SpecEvents::Note.new("same").call.as(Array(Shomen::Event))
-        store.append("s", version.to_i64, events)
-      end
-      rows = store.read(after: 0_i64)
-      rows.map(&.version).should eq([1_i64, 2_i64])
-      texts(rows).should eq(%w(same same))
+  store_it "appends two rows when the same command is handled twice" do |store, _|
+    2.times do |version|
+      events = SpecEvents::Note.new("same").call.as(Array(Shomen::Event))
+      store.append("s", version.to_i64, events)
     end
+    rows = store.read(after: 0_i64)
+    rows.map(&.version).should eq([1_i64, 2_i64])
+    texts(rows).should eq(%w(same same))
   end
 
-  it "raises Conflict and adds no row when two appends expect the same version" do
-    with_store do |store|
-      store.append("s", 0_i64, note("first"))
-      expect_raises(Shomen::Conflict, "stream s is at version 1, expected 0") do
-        store.append("s", 0_i64, note("second"))
-      end
-      texts(store.read(after: 0_i64)).should eq(["first"])
+  store_it "raises Conflict and adds no row when two appends expect the same version" do |store, _|
+    store.append("s", 0_i64, note("first"))
+    expect_raises(Shomen::Conflict, "stream s is at version 1, expected 0") do
+      store.append("s", 0_i64, note("second"))
     end
+    texts(store.read(after: 0_i64)).should eq(["first"])
   end
 
-  it "raises Conflict and adds no row when the expected version is ahead" do
-    with_store do |store|
-      expect_raises(Shomen::Conflict, "stream s is at version 0, expected 3") do
-        store.append("s", 3_i64, note("ahead"))
-      end
-      store.read(after: 0_i64).should be_empty
+  store_it "raises Conflict and adds no row when the expected version is ahead" do |store, _|
+    expect_raises(Shomen::Conflict, "stream s is at version 0, expected 3") do
+      store.append("s", 3_i64, note("ahead"))
     end
+    store.read(after: 0_i64).should be_empty
   end
 
-  it "stays usable and closes cleanly after a conflict" do
+  store_it "stays usable after a conflict" do |store, _|
+    store.append("s", 0_i64, note("one"))
+    expect_raises(Shomen::Conflict) { store.append("s", 0_i64, note("two")) }
+    store.append("s", 1_i64, note("two"))
+    texts(store.read(after: 0_i64)).should eq(%w(one two))
+  end
+
+  it "closes cleanly after a conflict" do
     with_store do |store|
       store.append("s", 0_i64, note("one"))
       expect_raises(Shomen::Conflict) { store.append("s", 0_i64, note("two")) }
-      store.append("s", 1_i64, note("two"))
-      texts(store.read(after: 0_i64)).should eq(%w(one two))
       store.close
     end
   end
 
-  it "does nothing for an empty list of events" do
-    with_store do |store|
-      store.append("s", 7_i64, [] of Shomen::Event)
-      store.read(after: 0_i64).should be_empty
-    end
+  store_it "does nothing for an empty list of events" do |store, _|
+    store.append("s", 7_i64, [] of Shomen::Event)
+    store.read(after: 0_i64).should be_empty
   end
 
-  it "rejects an empty stream name and a negative version" do
-    with_store do |store|
-      expect_raises(ArgumentError) { store.append("", 0_i64, note("x")) }
-      expect_raises(ArgumentError) { store.append("s", -1_i64, note("x")) }
-    end
+  store_it "rejects an empty stream name and a negative version" do |store, _|
+    expect_raises(ArgumentError) { store.append("", 0_i64, note("x")) }
+    expect_raises(ArgumentError) { store.append("s", -1_i64, note("x")) }
   end
 
-  it "writes the declared type, the JSON payload, and the time to the second" do
-    with_store do |store, path|
-      at = Time.utc(2026, 9, 29, 1, 2, 3, nanosecond: 500_000_000)
-      store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
-      DB.open("sqlite3://#{path}") do |db|
-        type, payload, stored_at = db.query_one("SELECT type, payload, at FROM events", as: {String, String, String})
-        type.should eq("spec.noted")
-        JSON.parse(payload)["text"].as_s.should eq("x")
-        stored_at.should eq("2026-09-29T01:02:03Z")
-      end
-      store.read(after: 0_i64).first.event.at.should eq(Time.utc(2026, 9, 29, 1, 2, 3))
+  store_it "writes the declared type, the JSON payload, and the time to the second" do |store, url|
+    at = Time.utc(2026, 9, 29, 1, 2, 3, nanosecond: 500_000_000)
+    store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
+    DB.open(url) do |db|
+      type, payload, stored_at = db.query_one("SELECT type, payload, at FROM events", as: {String, String, String})
+      type.should eq("spec.noted")
+      JSON.parse(payload)["text"].as_s.should eq("x")
+      stored_at.should eq("2026-09-29T01:02:03Z")
     end
+    store.read(after: 0_i64).first.event.at.should eq(Time.utc(2026, 9, 29, 1, 2, 3))
   end
 
-  it "raises with the type name for a row whose type no event declares" do
-    with_store do |store, path|
-      DB.open("sqlite3://#{path}") do |db|
-        db.exec("INSERT INTO events (stream, version, type, payload, at) VALUES ('s', 1, 'gone', '{}', '2026-09-29T00:00:00Z')")
-      end
-      expect_raises(ArgumentError, %(unknown event type "gone")) { store.read(after: 0_i64) }
+  store_it "raises with the type name for a row whose type no event declares" do |store, url|
+    DB.open(url) do |db|
+      db.exec("INSERT INTO events (stream, version, type, payload, at) VALUES ('s', 1, 'gone', '{}', '2026-09-29T00:00:00Z')")
     end
+    expect_raises(ArgumentError, %(unknown event type "gone")) { store.read(after: 0_i64) }
   end
 
   it "creates a missing directory for a relative path and uses WAL" do
@@ -151,8 +138,8 @@ describe Shomen::Store do
     end
   end
 
-  it "refuses a URL that is not a sqlite3 file" do
-    expect_raises(ArgumentError) { Shomen::Store.new("postgres://localhost/app") }
+  it "refuses a URL that names no SQLite file and a scheme it does not know" do
+    expect_raises(ArgumentError, "store URL must use sqlite3, postgres, or postgresql") { Shomen::Store.new("mysql://localhost/app") }
     expect_raises(ArgumentError) { Shomen::Store.new("sqlite3::memory:") }
     expect_raises(ArgumentError) { Shomen::Store.new("sqlite3://") }
     expect_raises(ArgumentError) { Shomen::Store.new("sqlite3://:memory:") }
@@ -215,14 +202,12 @@ describe Shomen::Store do
     File.exists?(path).should be_false
   end
 
-  it "refuses an event whose time is not UTC and adds no row" do
-    with_store do |store|
-      at = Time.local(2026, 9, 29, 0, 30, 0, location: Time::Location.fixed(9 * 3600))
-      expect_raises(ArgumentError, "UTC") do
-        store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
-      end
-      store.read(after: 0_i64).should be_empty
+  store_it "refuses an event whose time is not UTC and adds no row" do |store, _|
+    at = Time.local(2026, 9, 29, 0, 30, 0, location: Time::Location.fixed(9 * 3600))
+    expect_raises(ArgumentError, "UTC") do
+      store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
     end
+    store.read(after: 0_i64).should be_empty
   end
 
   it "writes none of the events when a later one fails" do
@@ -241,7 +226,7 @@ describe Shomen::Store do
 
   it "waits for an append in progress before it reads or closes" do
     with_store do |store|
-      lock = store.@lock
+      lock = store.@adapter.as(Shomen::SQLiteAdapter).@lock
       lock.lock
       done = Channel(String).new(2)
       spawn { store.read(after: 0_i64); done.send("read") }
@@ -257,42 +242,36 @@ describe Shomen::Store do
     end
   end
 
-  it "tells this process the last id it appended, through any store on the file" do
-    with_store do |store, path|
-      store.last_appended.should eq(0_i64)
-      store.append("a", 0_i64, [SpecEvents::Noted.new("1"), SpecEvents::Noted.new("2")] of Shomen::Event)
-      store.last_appended.should eq(2_i64)
-      other = Shomen::Store.new("sqlite3://#{path}")
-      begin
-        other.last_appended.should eq(2_i64)
-        other.append("b", 0_i64, note("3"))
-        store.last_appended.should eq(3_i64)
-      ensure
-        other.close
-      end
+  store_it "tells this process the last id it appended, through any store on the database" do |store, url|
+    store.last_appended.should eq(0_i64)
+    store.append("a", 0_i64, [SpecEvents::Noted.new("1"), SpecEvents::Noted.new("2")] of Shomen::Event)
+    store.last_appended.should eq(2_i64)
+    other = Shomen::Store.new(url)
+    begin
+      other.last_appended.should eq(2_i64)
+      other.append("b", 0_i64, note("3"))
+      store.last_appended.should eq(3_i64)
+    ensure
+      other.close
     end
   end
 
-  it "announces nothing for an append that conflicts" do
-    with_store do |store|
-      store.append("a", 0_i64, note("1"))
-      expect_raises(Shomen::Conflict) { store.append("a", 0_i64, note("2")) }
-      store.last_appended.should eq(1_i64)
-    end
+  store_it "announces nothing for an append that conflicts" do |store, _|
+    store.append("a", 0_i64, note("1"))
+    expect_raises(Shomen::Conflict) { store.append("a", 0_i64, note("2")) }
+    store.last_appended.should eq(1_i64)
   end
 
-  it "wakes a fiber that waits for an append in this process" do
-    with_store do |store|
-      woke = Channel(Bool).new(1)
-      spawn { woke.send(store.wait_for_append(after: 0_i64, within: 5.seconds)) }
-      Fiber.yield
-      store.append("a", 0_i64, note("1"))
-      select
-      when value = woke.receive
-        value.should be_true
-      when timeout(5.seconds)
-        fail "the waiting fiber did not wake"
-      end
+  store_it "wakes a fiber that waits for an append in this process" do |store, _|
+    woke = Channel(Bool).new(1)
+    spawn { woke.send(store.wait_for_append(after: 0_i64, within: 5.seconds)) }
+    Fiber.yield
+    store.append("a", 0_i64, note("1"))
+    select
+    when value = woke.receive
+      value.should be_true
+    when timeout(5.seconds)
+      fail "the waiting fiber did not wake"
     end
   end
 end

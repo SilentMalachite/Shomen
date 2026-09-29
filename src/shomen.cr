@@ -22,6 +22,8 @@ require "./shomen/session_store"
 require "./shomen/router"
 require "./shomen/route"
 require "./shomen/island"
+require "./shomen/connections"
+require "./shomen/listener"
 require "./shomen/server"
 
 module Shomen
