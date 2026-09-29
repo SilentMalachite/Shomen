@@ -40,14 +40,14 @@ A read-only GET does not pass through a Command.
 | `Shomen::Store` | Append and read | Event |
 | `Shomen::Projection` | Apply events after a checkpoint | Event, Store |
 | `Shomen::Consumer` | Run a projection or a reaction outside the request | Projection, Command, Store |
-| `Shomen::Island` | Serve the official JavaScript | Server |
+| `Shomen::Island` | Serve the official JavaScript | Route |
 
 A lower module does not import a higher one. Store must not know HTML. HTML must not know SQLite.
 
 ## Rendering
 
 - A document view starts at `<!DOCTYPE html>`
-- A fragment view has one root element. An `id` makes replacement easier, and phase 1 does not require it
+- A fragment view (`Shomen::Fragment`) has one root element. Nothing checks the count. `shomen.js` replaces the element whose `id` matches `Shomen-Target`, so a fragment meant for replacement carries that `id`
 - The same data type may produce both a document and a fragment. They do not have to share one class
 
 ## Persistence

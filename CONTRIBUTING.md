@@ -14,7 +14,7 @@ Shomen is specified before it is extended. Read the canonical spec, then change 
 
 The Japanese files next to `docs/en/` are translations. If they disagree, the English file wins and the Japanese file is updated to match.
 
-Do not implement a later phase because it looks useful. Phase 2 and after start only when the phase document says they are current.
+Do not implement a later phase because it looks useful. A later phase starts only when the phase document says it is current.
 
 ## Change the spec before the code
 
@@ -27,7 +27,7 @@ Decision logs and the notes under `docs/superpowers/` stay Japanese. They are no
 - Crystal 1.20 or newer. Public types live under `Shomen::`.
 - Identifiers, code, and commit subjects are English.
 - No Amber, Lucky, Kemal, Marten, or Rails compatibility layer.
-- No new shard unless the spec names it. Phases 0–2 have no dependencies.
+- No new shard unless the spec names it. Phases 0–2 had none. Phase 3 added `sqlite3` and `db`.
 - Keep the sample application in `examples/`. Do not fold it into the framework.
 - Run `crystal tool format` on Crystal files you edit.
 

@@ -40,14 +40,14 @@ HTTP 要求
 | `Shomen::Store` | 追記と読取 | Event |
 | `Shomen::Projection` | チェックポイントより後のイベントを適用 | Event, Store |
 | `Shomen::Consumer` | 要求の外でプロジェクションや反応を動かす | Projection, Command, Store |
-| `Shomen::Island` | 公式 JS の配信 | Server |
+| `Shomen::Island` | 公式 JS の配信 | Route |
 
 下位が上位を import しない。Store が HTML を知ってはいけない。HTML が SQLite を知ってはいけない。
 
 ## レンダリング
 
 - 文書ビュー: `<!DOCTYPE html>` から書く
-- 断片ビュー: 根要素 1 つ。`id` を持てると差し替えやすいが、フェーズ 1 では必須にしない
+- 断片ビュー（`Shomen::Fragment`）: 根要素 1 つ。数は検査しない。`shomen.js` は `Shomen-Target` と同じ `id` の要素を差し替えるので、差し替える断片はその `id` を持つ
 - 同じデータ型から文書と断片の両方を出してよい。無理に 1 クラスに詰め込まない
 
 ## 永続化

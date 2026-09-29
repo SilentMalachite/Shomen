@@ -61,7 +61,10 @@ shard.yml
 src/shomen.cr                 # ライブラリ入口
 src/shomen/
   route.cr
-  handler.cr
+  router.cr
+  response.cr
+  view.cr
+  fragment.cr
   html.cr
   a11y.cr
   session.cr
@@ -69,7 +72,9 @@ src/shomen/
   event.cr
   store.cr
   projection.cr
-  consumer.cr
+  consumer.cr                 # フェーズ 7
+  island.cr
+  assets/shomen.js
   server.cr
 spec/
 examples/hello/               # 最小アプリ。本体に機能を置かない
@@ -112,7 +117,7 @@ end
 - `path` の `:id` は `Input` の同名フィールドに束縛する。型変換に失敗したら 400
 - 同じ method + path の二重登録はコンパイル失敗または起動失敗
 - path helper はルートクラスから呼べる（例: `Hello::Show.path` → `"/"`）
-- レスポンスは HTML 文書または HTML 断片。JSON はフェーズ 4 以降で、ルートが明示したときだけ
+- レスポンスは HTML 文書または HTML 断片。JSON はルートが `json` で明示したときだけ（フェーズ 4）
 
 ### 3. ビュー / HTML
 

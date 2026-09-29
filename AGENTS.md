@@ -48,13 +48,11 @@ crystal spec
 crystal build src/shomen.cr --error-trace
 ```
 
-フェーズ 0 完了後は加えて:
+`examples/hello` も確かめる:
 
 ```sh
 cd examples/hello && shards install && crystal spec
 ```
-
-（hello がまだ無いフェーズでは examples を走らせない）
 
 ## 言語
 
