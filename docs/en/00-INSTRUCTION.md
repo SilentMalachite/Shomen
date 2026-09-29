@@ -63,6 +63,7 @@ src/shomen/
   route.cr
   router.cr
   response.cr
+  sse.cr                      # phase 5
   view.cr
   fragment.cr
   html.cr
@@ -155,6 +156,7 @@ Helpers:
 - `render(view)` returns 200 and `text/html; charset=utf-8`
 - `render_fragment(view)` returns 200 and a fragment, without a document `<html>`
 - `json(value, status = 200)` returns `application/json` with `value.to_json`. The server never chooses JSON on its own
+- `sse(store, heartbeat = 15.seconds) { fragment }` returns an event stream (`text/event-stream`). It renders the fragment now and again after each append to `store` in this process, and sends its HTML whenever it changed. Appends in other processes reach it in phase 7 (`docs/decisions/20260929-phase5-sse-response.md`)
 - `redirect(path, status = 303)`
 
 The server attaches security headers by default.
@@ -232,9 +234,9 @@ Rules:
 
 - Besides a normal HTML document, a route can return the same view as a fragment
 - The official JavaScript is one file, `shomen.js`. Attributes are only `data-shomen-*`
-- The default transport is `fetch`. SSE is opt-in
+- The default transport is `fetch`. SSE is opt-in: a GET route answers with `sse`, and an element with `data-shomen-sse="URL"` receives its fragments. Each fragment replaces the element with the same `id` inside that element (phase 5, `docs/decisions/20260929-phase5-sse-script.md`)
 - WebSocket is not built
-- An island loads JavaScript only on an element with `data-shomen-island="name"`
+- An island loads JavaScript only on an element with `data-shomen-island="name"`. `Shomen::Island.script "name", "file.js"` serves the application's module at `/islands/name.js`, and `shomen.js` calls its default export with the element (phase 5, `docs/decisions/20260929-phase5-island-script.md`)
 
 ### 9. Error model
 

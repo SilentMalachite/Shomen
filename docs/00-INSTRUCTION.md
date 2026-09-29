@@ -63,6 +63,7 @@ src/shomen/
   route.cr
   router.cr
   response.cr
+  sse.cr                      # フェーズ 5
   view.cr
   fragment.cr
   html.cr
@@ -155,6 +156,7 @@ DSL は HTML 要素に対応するメソッドを提供する。最低限:
 - `render(view)` → 200 + `text/html; charset=utf-8`
 - `render_fragment(view)` → 200 + 断片。文書の `<html>` を含めない
 - `json(value, status = 200)` → `application/json` + `value.to_json`。サーバが自分で JSON を選ぶことはない
+- `sse(store, heartbeat = 15.seconds) { 断片 }` → イベントストリーム（`text/event-stream`）。断片を今描き、このプロセスで `store` に追記があるたびに描き直し、HTML が変わったときだけ送る。他のプロセスの追記が届くのはフェーズ 7（`docs/decisions/20260929-phase5-sse-response.md`）
 - `redirect(path, status = 303)`
 
 セキュリティヘッダはサーバ既定で付ける。
@@ -232,9 +234,9 @@ end
 
 - ルートは通常の HTML 文書のほか、同じ View を断片として返せる
 - 公式 JS は `shomen.js` 一つ。属性は `data-shomen-*` のみ
-- 既定の輸送は `fetch`。SSE はオプトイン
+- 既定の輸送は `fetch`。SSE はオプトイン: GET のルートが `sse` で答え、`data-shomen-sse="URL"` の要素がその断片を受け取る。断片は、その要素の中の同じ `id` の要素を置き換える（フェーズ 5、`docs/decisions/20260929-phase5-sse-script.md`）
 - WebSocket は作らない
-- 島は `data-shomen-island="name"` の要素にだけ JS を載せる
+- 島は `data-shomen-island="name"` の要素にだけ JS を載せる。`Shomen::Island.script "name", "file.js"` がアプリのモジュールを `/islands/name.js` で配り、`shomen.js` がその要素を渡して既定のエクスポートを呼ぶ（フェーズ 5、`docs/decisions/20260929-phase5-island-script.md`）
 
 ### 9. エラーモデル
 
