@@ -52,7 +52,8 @@
 - 衝突の後のストア。`Shomen::Conflict` を投げた後も同じストアで追記と読み取りができ、`close` が例外を投げない。crystal-sqlite3 は、失敗した文が残ると `close` で例外を投げるので、衝突は SQL の失敗ではなく版の確認で止める必要がある。Task 3 の spec で固定する。
 - `apply` の途中の失敗。プロジェクションの `apply` が 2 件目で例外を投げる。チェックポイントは 1 件目の `id` に留まり、次の `catch_up` は 2 件目からやり直し、1 件目を二度適用しない。Task 4 の spec で固定する。
 - 知らない `type` の行。新しいビルドが書いた行や、消されたイベント型の行を読む。黙って読み飛ばさず、型の名前を含む `ArgumentError` を投げる。Task 3 の spec で固定する。
-- URL の形。`sqlite3://./var/shomen.sqlite3` のように `var/` がまだ無い相対パスは、ディレクトリを作って開く。`sqlite3::memory:`、`sqlite3://`、`postgres://…` は `ArgumentError`。Task 3 の spec で固定する。
+- URL の形。`sqlite3://./var/shomen.sqlite3` のように `var/` がまだ無い相対パスは、ディレクトリを作って開く。`sqlite3::memory:`、`sqlite3://:memory:`、`sqlite3://`、`sqlite3:///`、`postgres://…` は `ArgumentError`。開けないファイルは、ファイル名を含む `DB::ConnectionRefused`。Task 3 の spec で固定する。
+- ロック待ちのタイムアウトと、SQLite が自分でロールバックした追記。どちらの後も同じストアで追記と読み取りができ、`close` が例外を投げない。後者は元のエラーを上げ、`ROLLBACK` の失敗で隠さない。Task 3 の spec で固定する（最終レビュー後に追加）。
 
 ## File Map
 
@@ -194,12 +195,13 @@ union を返せば、呼び出し側は失敗の分岐をコンパイラに強�
 
 # 決定
 
-- `Shomen::Store.new(url : String)`。フェーズ 3 はスキーム `sqlite3` だけを受け付ける。ほかのスキーム、ファイル名が空、`:memory:` は `ArgumentError`
+- `Shomen::Store.new(url : String)`。フェーズ 3 はスキーム `sqlite3` だけを受け付ける。URL として読めないもの、ほかのスキーム、ファイル名が空、`:memory:`、ディレクトリは `ArgumentError`。ファイルを開けなければ、ファイル名を含む `DB::ConnectionRefused` にする。`events` 表を作れなければ、開いた DB を閉じてから例外を上げる
 - URL に無ければ `journal_mode=wal` と `busy_timeout=5000` を足す。URL にあればそれを使う
 - ファイルの親ディレクトリが無ければ作る。`events` 表を `CREATE TABLE IF NOT EXISTS` で作る。マイグレーションの仕組みは作らない
 - `append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil`。空の配列は何もしない。空のストリーム名と負の版は `ArgumentError`。版の確認は `BEGIN IMMEDIATE` の中で `SELECT COALESCE(MAX(version), 0)` で行い、違えば `ROLLBACK` して `Shomen::Conflict` を投げる。`payload` と `at` の文字列はロックを取る前に作る
 - `UNIQUE (stream, version)` に当たったときは、`SQLite3::Exception` をそのまま上げる。追記が直列なので、通常は版の確認が先に止める
 - `read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)` は `id` が `after` より大きい行を `id` 順に返す
+- 失敗した文は `ROLLBACK` の前後にリセットする。SQLite がすでにロールバックしていて `ROLLBACK` が失敗しても、元の例外を上げる
 - `close : Nil`
 - プロセス内のロックは、`File.realpath` で求めた実パスごとに 1 つの `Mutex` にする
 
@@ -301,7 +303,7 @@ Store は `crystal-db` と `crystal-sqlite3` を require し、libsqlite3 をリ
 
 - コマンド `Users::RenameUser`、イベント `Users::UserRenamed`（`event_type "user_renamed"`）、ストリーム `user-<id>`、プロジェクション `Users::Names`
 - `Users::Edit`（`GET /users/:id/edit`）、`Users::Rename`（`POST /users/:id`）、`Users::Show`（`GET /users/:id`）
-- フォームは、開いたときのストリームの版を hidden の `version` で送る。`Users::Rename` はそれを期待する版にして追記する。古いフォームは 409 になる
+- フォームは、開いたときのストリームの版を hidden の `version` で送る。版は最後の改名ではなく、ストリームの最後のイベントの版にする。`Users::Rename` はそれを期待する版にして追記する。古いフォームは 409、負の版は 400 になる
 - 名前が前後の空白を除いて 2 文字未満なら、コマンドが `Shomen::Rejected` を返し、422 で描き直す
 - 名前のまだ無い利用者の `Users::Show` は 404
 - DB の URL は環境変数 `HELLO_DATABASE_URL`、無ければ `sqlite3://./var/shomen.sqlite3`
@@ -641,7 +643,7 @@ Expected: 0 failures、整形の差分なし、ビルド成功。
 - Produces:
   - `class Shomen::Conflict < Exception`
   - `struct Shomen::Recorded`: `.new(id : Int64, stream : String, version : Int64, event : Shomen::Event)`、`#id`、`#stream`、`#version`、`#event`
-  - `class Shomen::Store`: `.new(url : String)`、`#append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil`、`#read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)`、`#close : Nil`、定数 `BUSY_TIMEOUT_MS = 5000`
+  - `class Shomen::Store`: `.new(url : String)`、`#append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil`、`#read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)`、`#close : Nil`、定数 `BUSY_TIMEOUT_MS = 5000`。失敗した文は `ROLLBACK` の前後にリセットするので、衝突、ロック待ちのタイムアウト、SQLite によるロールバックの後も `close` は例外を投げない（最終レビュー後に追加）
   - spec 用: `with_store(& : Shomen::Store, String ->)`（一時ファイルのストアとそのパス）、`remove_database(path : String) : Nil`、`note(text : String) : Array(Shomen::Event)`
 
 - [ ] **Step 1: 依存を足す**
@@ -823,10 +825,70 @@ describe Shomen::Store do
     end
   end
 
+  it "stays usable and closes cleanly after another writer held the lock past the busy timeout" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    begin
+      store = Shomen::Store.new("sqlite3://#{path}?busy_timeout=50")
+      DB.open("sqlite3://#{path}") do |db|
+        db.using_connection do |blocker|
+          blocker.exec("BEGIN IMMEDIATE")
+          expect_raises(SQLite3::Exception, "database is locked") { store.append("s", 0_i64, note("x")) }
+          blocker.exec("ROLLBACK")
+        end
+      end
+      store.read(after: 0_i64).should be_empty
+      store.close
+    ensure
+      remove_database(path)
+    end
+  end
+
+  it "keeps the insert error and closes cleanly when SQLite rolled the transaction back" do
+    with_store do |store, path|
+      DB.open("sqlite3://#{path}") do |db|
+        db.exec("CREATE TRIGGER boom BEFORE INSERT ON events WHEN NEW.stream = 'boom' BEGIN SELECT RAISE(ROLLBACK, 'boom'); END")
+      end
+      expect_raises(SQLite3::Exception, "boom") { store.append("boom", 0_i64, note("x")) }
+      store.append("s", 0_i64, note("y"))
+      texts(store.read(after: 0_i64)).should eq(["y"])
+      store.close
+    end
+  end
+
   it "refuses a URL that is not a sqlite3 file" do
     expect_raises(ArgumentError) { Shomen::Store.new("postgres://localhost/app") }
     expect_raises(ArgumentError) { Shomen::Store.new("sqlite3::memory:") }
     expect_raises(ArgumentError) { Shomen::Store.new("sqlite3://") }
+    expect_raises(ArgumentError) { Shomen::Store.new("sqlite3://:memory:") }
+    expect_raises(ArgumentError) { Shomen::Store.new("sqlite3:///") }
+  end
+
+  it "names the file it cannot open" do
+    dir = File.tempname("shomen-store-dir")
+    Dir.mkdir(dir)
+    File.chmod(dir, 0o555)
+    path = File.join(dir, "shomen.sqlite3")
+    begin
+      expect_raises(DB::ConnectionRefused, path) { Shomen::Store.new("sqlite3://#{path}") }
+    ensure
+      File.chmod(dir, 0o755)
+      FileUtils.rm_rf(dir)
+    end
+  end
+
+  it "closes the database when the events table cannot be created" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    begin
+      DB.open("sqlite3://#{path}") do |db|
+        db.exec("CREATE TABLE other (x TEXT)")
+        db.exec("CREATE INDEX events ON other (x)")
+      end
+      before = Dir.children("/dev/fd").size
+      expect_raises(SQLite3::Exception, "already an index named events") { Shomen::Store.new("sqlite3://#{path}") }
+      Dir.children("/dev/fd").size.should eq(before)
+    ensure
+      remove_database(path)
+    end
   end
 end
 ```
@@ -891,14 +953,24 @@ class Shomen::Store
     )
     SQL
 
+  SELECT_VERSION = "SELECT COALESCE(MAX(version), 0) FROM events WHERE stream = ?"
+  INSERT         = "INSERT INTO events (stream, version, type, payload, at) VALUES (?, ?, ?, ?, ?)"
+
   @@locks = {} of String => Mutex
   @@locks_lock = Mutex.new
 
+  @db : DB::Database
+  @lock : Mutex
+
   def initialize(url : String)
-    uri = URI.parse(url)
+    uri = begin
+      URI.parse(url)
+    rescue ex : URI::Error
+      raise ArgumentError.new("store URL is not valid: #{ex.message}")
+    end
     raise ArgumentError.new("store URL must use sqlite3, got #{uri.scheme.inspect}") unless uri.scheme == "sqlite3"
     filename = SQLite3::Connection.filename(uri)
-    if filename.empty? || filename == ":memory:"
+    if filename.empty? || filename == ":memory:" || Dir.exists?(filename)
       raise ArgumentError.new("store URL must name a file")
     end
     Dir.mkdir_p(File.dirname(filename))
@@ -906,8 +978,17 @@ class Shomen::Store
     params["journal_mode"] = "wal" unless params.has_key?("journal_mode")
     params["busy_timeout"] = BUSY_TIMEOUT_MS.to_s unless params.has_key?("busy_timeout")
     uri.query_params = params
-    @db = DB.open(uri.to_s)
-    @db.exec(SCHEMA)
+    @db = begin
+      DB.open(uri.to_s)
+    rescue ex : DB::ConnectionRefused
+      raise DB::ConnectionRefused.new("cannot open #{filename}", cause: ex)
+    end
+    begin
+      @db.exec(SCHEMA)
+    rescue ex
+      @db.close
+      raise ex
+    end
     real = File.realpath(filename)
     @lock = @@locks_lock.synchronize { @@locks[real] ||= Mutex.new }
   end
@@ -919,29 +1000,47 @@ class Shomen::Store
     rows = events.map { |event| {event.event_type, event.to_json, event.at.to_utc.to_rfc3339} }
     @lock.synchronize do
       @db.using_connection do |connection|
-        connection.exec("BEGIN IMMEDIATE")
+        begin
+          connection.exec("BEGIN IMMEDIATE")
+        rescue ex
+          reset(connection, "BEGIN IMMEDIATE")
+          raise ex
+        end
         begin
           insert(connection, stream, expected_version, rows)
           connection.exec("COMMIT")
         rescue ex
-          connection.exec("ROLLBACK")
+          rollback(connection)
           raise ex
         end
       end
     end
   end
 
+  # SQLite may already have rolled back (a full disk, a trigger), so a
+  # failed ROLLBACK must not hide the error that caused it.
+  private def rollback(connection : DB::Connection) : Nil
+    connection.exec("ROLLBACK")
+  rescue
+    reset(connection, "ROLLBACK")
+  ensure
+    [SELECT_VERSION, INSERT, "COMMIT"].each { |sql| reset(connection, sql) }
+  end
+
+  # A statement that failed keeps its error until it is reset, and
+  # crystal-sqlite3 raises that error again when the connection closes.
+  private def reset(connection : DB::Connection, sql : String) : Nil
+    LibSQLite3.reset(connection.fetch_or_build_prepared_statement(sql).as(SQLite3::Statement))
+  end
+
   private def insert(connection : DB::Connection, stream : String, expected_version : Int64, rows : Array({String, String, String})) : Nil
-    current = connection.scalar("SELECT COALESCE(MAX(version), 0) FROM events WHERE stream = ?", stream).as(Int64)
+    current = connection.scalar(SELECT_VERSION, stream).as(Int64)
     unless current == expected_version
       raise Shomen::Conflict.new("stream #{stream} is at version #{current}, expected #{expected_version}")
     end
     rows.each_with_index(1) do |row, offset|
       type, payload, at = row
-      connection.exec(
-        "INSERT INTO events (stream, version, type, payload, at) VALUES (?, ?, ?, ?, ?)",
-        stream, expected_version + offset, type, payload, at,
-      )
+      connection.exec(INSERT, stream, expected_version + offset, type, payload, at)
     end
   end
 
@@ -974,7 +1073,7 @@ require "./shomen/store"
 - [ ] **Step 6: 通ることを確かめる**
 
 Run: `crystal spec spec/shomen/store_spec.cr`
-Expected: PASS（12 examples, 0 failures）。`it "stays usable and closes cleanly after a conflict"` は `with_store` の `ensure` で 2 回目の `close` を呼ぶが、crystal-db の `Disposable#close` は閉じ済みなら何もしない。
+Expected: PASS（16 examples, 0 failures。うち 4 つは最終レビュー後に追加）。`it "stays usable and closes cleanly after a conflict"` は `with_store` の `ensure` で 2 回目の `close` を呼ぶが、crystal-db の `Disposable#close` は閉じ済みなら何もしない。
 
 - [ ] **Step 7: 全体と例を確かめる**
 
@@ -1398,7 +1497,7 @@ Expected: 0 failures、整形の差分なし、ビルド成功。
 - Produces:
   - `Users::STORE : Shomen::Store`、`Users::NAMES : Users::Names`、`Users.stream(user_id : String) : String`（`"user-<id>"`）
   - `Users::UserRenamed`（`user_id : String`、`name : String`、`at : Time`、`event_type "user_renamed"`）、`Users::RenameUser`（コマンド）
-  - `Users::Names#find(user_id : String) : Users::Names::Entry?`、`Entry`（`name : String`、`version : Int64`）
+  - `Users::Names#find(user_id : String) : Users::Names::Entry?`、`Entry`（`name : String`、`version : Int64`）、`Users::Names#version(user_id : String) : Int64`（名前の無い利用者は 0）。版は最後の改名ではなく、ストリームの最後のイベントの版（最終レビュー後に変更）
   - `Users::Edit`（`GET /users/:id/edit`）、`Users::Rename`（`POST /users/:id`、フィールド `name`、`version`）、`Users::Show`（`GET /users/:id`）
 
 - [ ] **Step 1: spec の支えを変える**
@@ -1428,6 +1527,16 @@ end
 ```crystal
 require "./spec_helper"
 require "http/client"
+
+struct UserNoted
+  include Shomen::Event
+  event_type "spec.user_noted"
+
+  getter at : Time
+
+  def initialize(@at : Time = Time.utc)
+  end
+end
 
 private def request(server : Shomen::Server, method : String, path : String, cookie : String? = nil, body : String? = nil) : HTTP::Client::Response
   headers = HTTP::Headers.new
@@ -1513,13 +1622,31 @@ describe Users do
   it "returns 404 for a user with no name" do
     request(Shomen::Server.new, "GET", "/users/6").status_code.should eq(404)
   end
+
+  it "answers a negative version with 400 and adds no row" do
+    server = Shomen::Server.new
+    cookie, token, _ = open_edit(server, 7_i64)
+    response = post_rename(server, 7_i64, cookie, token, "-1", "Ada")
+    response.status_code.should eq(400)
+    response.body.should_not contain("expected_version")
+    rows(7_i64).should eq(0)
+  end
+
+  it "puts the stream version in the form when another event type follows a rename" do
+    server = Shomen::Server.new
+    rename(server, 8_i64, "Ada").status_code.should eq(303)
+    Users::STORE.append(Users.stream("8"), 1_i64, [UserNoted.new] of Shomen::Event)
+    request(server, "GET", "/users/8/edit").body.should contain(%(name="version" value="2"))
+    rename(server, 8_i64, "Grace").status_code.should eq(303)
+    request(server, "GET", "/users/8").body.should contain("<h1>Grace</h1>")
+  end
 end
 ```
 
 - [ ] **Step 3: 失敗を確かめる**
 
 Run: `cd examples/hello && crystal spec spec/users_spec.cr`
-Expected: FAIL。`undefined constant Users` でコンパイルが止まる。
+Expected: FAIL。`undefined constant Users::STORE` でコンパイルが止まる（`spec_helper.cr` が先に参照する）。
 
 - [ ] **Step 4: 実装する**
 
@@ -1555,19 +1682,31 @@ module Users
     end
   end
 
+  # The version is the stream's, not the last rename's, so a form opened
+  # after any event on the stream expects the version the store checks.
   class Names < Shomen::Projection
     record Entry, name : String, version : Int64
 
-    @entries = {} of String => Entry
+    @names = {} of String => String
+    @versions = {} of String => Int64
 
     def find(user_id : String) : Entry?
-      @entries[user_id]?
+      if name = @names[user_id]?
+        Entry.new(name, version(user_id))
+      end
+    end
+
+    def version(user_id : String) : Int64
+      @versions[user_id]? || 0_i64
     end
 
     def apply(recorded : Shomen::Recorded) : Nil
+      user_id = recorded.stream.lchop?("user-")
+      return unless user_id
+      @versions[user_id] = recorded.version
       case event = recorded.event
       when UserRenamed
-        @entries[event.user_id] = Entry.new(event.name, recorded.version)
+        @names[user_id] = event.name
       end
     end
   end
@@ -1645,8 +1784,9 @@ module Users
     end
 
     def call(input : Input) : Shomen::Response
-      entry = NAMES.catch_up.find(input.id.to_s)
-      render EditView.new(input.id, entry.try(&.name) || "", entry.try(&.version) || 0_i64, csrf_token, nil)
+      user_id = input.id.to_s
+      NAMES.catch_up
+      render EditView.new(input.id, NAMES.find(user_id).try(&.name) || "", NAMES.version(user_id), csrf_token, nil)
     end
   end
 
@@ -1664,6 +1804,7 @@ module Users
     end
 
     def call(input : Input) : Shomen::Response
+      raise Shomen::BadInput.new("invalid version") if input.version < 0
       result = RenameUser.new(input.id.to_s, input.name).call
       if result.is_a?(Shomen::Rejected)
         return render EditView.new(input.id, input.name, input.version, csrf_token, result.messages.join(" ")), status: 422
@@ -1711,7 +1852,7 @@ end
 - [ ] **Step 5: 通ることを確かめる**
 
 Run: `cd examples/hello && crystal spec`
-Expected: PASS（既存の 10 examples に 6 を足した 16 examples, 0 failures）。`value=" A"` の検査が落ちたら、422 の描き直しで入力をどう出しているかを `greeting_spec.cr` の `value="&lt;"` と見比べる。名前はコマンドが `strip` するが、描き直しは送られた値のまま出す。
+Expected: PASS（既存の 10 examples に 8 を足した 18 examples, 0 failures。うち 2 つは最終レビュー後に追加）。`value=" A"` の検査が落ちたら、422 の描き直しで入力をどう出しているかを `greeting_spec.cr` の `value="&lt;"` と見比べる。名前はコマンドが `strip` するが、描き直しは送られた値のまま出す。
 
 - [ ] **Step 6: 手動で確かめる（再起動後の復元を含む）**
 
@@ -1741,8 +1882,8 @@ Expected: すべて 0 failures、整形の差分なし。
 ### Task 8: README と最終確認
 
 **Files:**
-- Modify: `README.md:7`、`README.md:9-12`（Requirements）、`README.md:76-96`
-- Modify: `README.ja.md` の対応する箇所（7 行目、要件、76〜96 行目）
+- Modify: `README.md:7`、`README.md:9-14`（Requirements と依存）、`README.md:76-96`
+- Modify: `README.ja.md` の対応する箇所（7 行目、要件と依存、76〜96 行目）
 
 **Interfaces:**
 - Consumes: Task 2〜7 の公開 API の名前
@@ -1760,6 +1901,12 @@ Requirements の箇条書きの末尾に足す:
 
 ```markdown
 - The SQLite 3 library (`libsqlite3`)
+```
+
+その下の「The framework shard has no dependencies.」を次にする:
+
+```markdown
+The framework shard depends on `sqlite3` and `db` from crystal-lang.
 ```
 
 「## Phases 1 and 2 are what run」を「## Phases 1 to 3 are what run」にし、「Phase 2 adds these:」の箇条書きの後に足す:
@@ -1792,6 +1939,12 @@ These are specified for later phases and are not in the code: HTML fragments, JS
 
 ```markdown
 - SQLite 3 のライブラリ（`libsqlite3`）
+```
+
+その下の「フレームワーク本体の shard に依存パッケージはありません。」を次にする:
+
+```markdown
+フレームワーク本体の shard は crystal-lang の `sqlite3` と `db` に依存します。
 ```
 
 「## いま動くのはフェーズ 1 と 2」を「## いま動くのはフェーズ 1 から 3」にし、「フェーズ 2 で足したもの:」の箇条書きの後に足す:
