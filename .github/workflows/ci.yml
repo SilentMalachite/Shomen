@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  spec:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SHOMEN_SPEC_POSTGRES: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+      # Ubuntu 24.04 keeps Chrome's sandbox from unprivileged user namespaces.
+      - name: Allow Chrome's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: shards install
+      - run: crystal tool format --check src spec examples
+      - run: crystal build src/shomen.cr --error-trace -o /tmp/shomen
+      - run: crystal spec
+      - name: examples/hello
+        working-directory: examples/hello
+        run: |
+          shards install
+          crystal spec
