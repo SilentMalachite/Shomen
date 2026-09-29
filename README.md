@@ -4,14 +4,15 @@
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 and 2 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, and CSRF protection. Later phases are specified and not implemented. There is no release tag yet.
+Version 0.0.0. Phases 1 to 3 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only SQLite event store, and in-memory projections. Later phases are specified and not implemented. There is no release tag yet.
 
 ## Requirements
 
 - Crystal 1.20 or newer
 - shards
+- The SQLite 3 library (`libsqlite3`)
 
-The framework shard has no dependencies.
+The framework shard depends on `sqlite3` and `db` from crystal-lang.
 
 ## Run the example
 
@@ -73,7 +74,7 @@ Shomen::Server.start
 
 The server listens on `127.0.0.1:3000`. A match returns 200 HTML. A bad path parameter returns 400. An unknown path, or `Shomen::NotFound`, returns 404 HTML. An unhandled exception returns 500 HTML with the message escaped. Every response sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `X-Frame-Options: DENY`.
 
-## Phases 1 and 2 are what run
+## Phases 1 to 3 are what run
 
 Phase 1 builds these:
 
@@ -93,7 +94,15 @@ Phase 2 adds these:
 - A compile-time check that every `input` has a label in the same view: a `label` whose `for:` matches the input's `id:` (both string literals), a wrapping `label`, or a non-empty `"aria-label"` or `"aria-labelledby"`. The view's other methods, its parent views, and included modules count. `type: "hidden"` is exempt. For a submit control, use `button`
 - `GET /greeting`, `POST /greeting`, and `GET /greeting/:name` in `examples/hello`
 
-These are specified for later phases and are not in the code: SQLite, commands and events, HTML fragments, the official JavaScript file, SSE, islands, Postgres, and running many identical processes on one database.
+Phase 3 adds these:
+
+- `Shomen::Event`: a struct that declares `event_type "name"`. The name goes into the `type` column, so renaming the Crystal type keeps old rows readable. A missing or duplicate name fails at compile time
+- `Shomen::Command`: `call` returns `Array(Shomen::Event)` or `Shomen::Rejected` with messages for a 422 form
+- `Shomen::Store.new("sqlite3://./var/shomen.sqlite3")`: `append(stream, expected_version, events)` and `read(after:, limit:)`. The file uses WAL. An append at any version other than the stream's current one raises `Shomen::Conflict` and writes nothing. An unhandled conflict is a 409 HTML document
+- `Shomen::Projection`: `apply` each event; `catch_up` applies the events after the checkpoint, including events another process appended. Call it before a view reads, and once before `Shomen::Server.start` to rebuild at startup
+- `GET /users/:id/edit`, `POST /users/:id`, and `GET /users/:id` in `examples/hello`
+
+These are specified for later phases and are not in the code: HTML fragments, JSON responses, the official JavaScript file, SSE, islands, Postgres, and running many identical processes on one database.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 

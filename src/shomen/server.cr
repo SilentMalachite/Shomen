@@ -6,10 +6,11 @@ require "crypto/subtle"
 class Shomen::Server
   include HTTP::Handler
 
-  UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-  FORM_TYPE      = "application/x-www-form-urlencoded"
-  CSRF_FIELD     = "_csrf"
-  MAX_FORM_BYTES = 1_048_576
+  UNSAFE_METHODS  = {"POST", "PUT", "PATCH", "DELETE"}
+  FORM_TYPE       = "application/x-www-form-urlencoded"
+  CSRF_FIELD      = "_csrf"
+  MAX_FORM_BYTES  = 1_048_576
+  CONFLICT_DETAIL = "This changed after the page was loaded. Reload the page and try again."
 
   @@generated_secret : String?
 
@@ -59,6 +60,8 @@ class Shomen::Server
     error_response(403, "Forbidden", nil)
   rescue ex : Shomen::NotFound
     error_response(404, "Not found", nil)
+  rescue ex : Shomen::Conflict
+    error_response(409, "Conflict", CONFLICT_DETAIL)
   rescue ex
     error_response(500, "Error", ex.message)
   end
