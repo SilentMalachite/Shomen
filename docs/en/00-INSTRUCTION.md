@@ -61,7 +61,10 @@ shard.yml
 src/shomen.cr                 # library entry
 src/shomen/
   route.cr
-  handler.cr
+  router.cr
+  response.cr
+  view.cr
+  fragment.cr
   html.cr
   a11y.cr
   session.cr
@@ -69,7 +72,9 @@ src/shomen/
   event.cr
   store.cr
   projection.cr
-  consumer.cr
+  consumer.cr                 # phase 7
+  island.cr
+  assets/shomen.js
   server.cr
 spec/
 examples/hello/               # minimal app. Features do not live in the framework
@@ -112,7 +117,7 @@ Rules:
 - A `:id` in `path` binds to the `Input` field of the same name. A failed conversion is 400
 - Registering the same method and path twice fails compilation or startup
 - A path helper is callable on the route class (`Hello::Show.path` returns `"/"`)
-- A response is an HTML document or an HTML fragment. JSON waits until phase 4, and only when the route asks for it
+- A response is an HTML document or an HTML fragment. JSON is sent only when the route asks for it with `json` (phase 4)
 
 ### 3. Views and HTML
 
