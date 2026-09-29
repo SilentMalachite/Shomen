@@ -4,3 +4,4 @@
 *.dwarf
 var/
 /.serena/
+.DS_Store
