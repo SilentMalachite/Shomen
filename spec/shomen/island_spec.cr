@@ -66,6 +66,11 @@ describe Shomen::Island do
     IslandRoutes::CounterIsland.path.should eq("/islands/counter.js")
   end
 
+  it "gives names that differ only by '-' routes of their own" do
+    IslandRoutes::Counter_2Island.path.should eq("/islands/counter-2.js")
+    IslandRoutes::Counter2Island.path.should eq("/islands/counter2.js")
+  end
+
   it "answers a module that no island declared with 404" do
     call_with(Shomen::Server.new, "GET", "/islands/nothing.js").status_code.should eq(404)
   end

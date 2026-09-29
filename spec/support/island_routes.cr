@@ -1,5 +1,8 @@
 module IslandRoutes
   Shomen::Island.script "counter", "islands/counter.js"
+  # A name with a digit after '-' and the same name without the '-'.
+  Shomen::Island.script "counter-2", "islands/counter.js"
+  Shomen::Island.script "counter2", "islands/counter.js"
 
   # An island of the counter module: a count and the button it shows.
   class CounterFragment < Shomen::Fragment

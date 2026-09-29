@@ -36,7 +36,10 @@ module Shomen::Island
     {% unless source %}
       {% file.raise "island file not found: #{file_path.id}" %}
     {% end %}
-    class {{name.tr("-", "_").camelcase.id}}Island < ::Shomen::Route
+    # A part after '-' that starts with a letter is capitalized; any other
+    # part keeps a '_' in front, so two names never share a class.
+    {% class_name = name.split("-").map { |part| part =~ /\A[a-z]/ ? part.capitalize : "_#{part.id}" }.join("") %}
+    class {{class_name.id}}Island < ::Shomen::Route
       method GET
       path {{"/islands/#{name.id}.js"}}
 
