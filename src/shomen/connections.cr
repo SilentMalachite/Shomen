@@ -45,7 +45,7 @@ class Shomen::Connections
   end
 
   # The request on the current connection became an SSE stream. A shutdown
-  # does not wait for it and closes it, at once when one already began.
+  # does not wait for it and cuts it, at once when one already began.
   def stream : Nil
     io = @lock.synchronize do
       entry = @entries[Fiber.current]?
@@ -54,7 +54,7 @@ class Shomen::Connections
       announce_if_done
       entry.io if @draining
     end
-    close(io) if io
+    cut(io) if io
   end
 
   def draining? : Bool
@@ -66,14 +66,14 @@ class Shomen::Connections
     @lock.synchronize { busy_count }
   end
 
-  # Closes every connection that is idle or streaming. From now on each
+  # Closes every idle connection and cuts every stream. From now on each
   # response says Connection: close.
   def drain : Nil
-    ios = @lock.synchronize do
+    entries = @lock.synchronize do
       @draining = true
-      @entries.values.reject(&.state.busy?).map(&.io)
+      @entries.values.reject(&.state.busy?)
     end
-    ios.each { |io| close(io) }
+    entries.each { |entry| entry.state.streaming? ? cut(entry.io) : close(entry.io) }
   end
 
   # True as soon as no request is in progress, false when within passes
@@ -129,5 +129,21 @@ class Shomen::Connections
   private def close(io : IO) : Nil
     io.close
   rescue IO::Error
+  end
+
+  # A stream may be stuck in a write to a client that stopped reading, and
+  # close would flush the socket's buffer first and get stuck with it.
+  # Shutting the socket down fails that write instead, and the fiber that
+  # serves the stream closes the socket as it ends.
+  private def cut(io : IO) : Nil
+    return close(io) unless io.is_a?(Socket)
+    begin
+      io.close_write
+    rescue IO::Error
+    end
+    begin
+      io.close_read
+    rescue IO::Error
+    end
   end
 end

@@ -7,7 +7,8 @@
 - `Shomen::Connections` が、サーバの接続を、それを処理するファイバーごとに覚える。状態は idle、busy（要求の処理中）、streaming（SSE）の 3 つ
 - `Shomen::Listener < HTTP::Server` は `dispatch` を上書きし、接続のファイバーの始めに `open(io)`、終わりに `leave` を呼ぶ
 - `Shomen::Server#call` は、要求の間を busy にする。SSE の応答を書き始めるときに streaming にする。登録の無いファイバー（ハンドラを直接呼ぶ spec）では何もしない
-- 合図を受けたら、`drain`（idle と streaming の接続を閉じ、以後の応答に `Connection: close` を付ける）、`HTTP::Server#close`、STDERR への `shomen: shutting down` の順に行う。drain の後で streaming になった接続は、すぐ閉じる
+- 合図を受けたら、`drain`（idle の接続を閉じ、streaming の接続を切り、以後の応答に `Connection: close` を付ける）、`HTTP::Server#close`、STDERR への `shomen: shutting down` の順に行う。drain の後で streaming になった接続は、すぐ切る
+- streaming の接続は `close` せず、ソケットを `close_write` / `close_read`（shutdown）で切る。読まなくなったクライアントへの書き込みで SSE のファイバーが止まっていると、`close` は送信バッファの flush を待って drain ごと止まるためである。shutdown で止まっていた書き込みが失敗し、そのファイバーが終わるときにソケットを閉じる
 - 最初の合図を受けたハンドラは、SIGTERM と SIGINT のカーネルの動作を `LibC.signal` で既定に戻す。Crystal のハンドラは外さない（`Signal#reset` を使わない）。以後に届いた合図はカーネルがすぐ処理するので、イベントループが止まっていてもプロセスはすぐ終わる。先にパイプに入っていた合図を受けたハンドラは、その合図を既定の動作に戻して自分のプロセスに送り直す。プロセスはその合図ですぐ終わる
 - `Shomen::Server.start` は、busy が 0 になるか `shutdown_timeout` を過ぎたら戻る。アプリの main がそこで終われば、終了コードは 0 になる
 - 待ち受けを始めたら、STDERR に `shomen: listening on http://<アドレス>:<ポート>` を書く。ポート 0 のときは実際のポートが入る

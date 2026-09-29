@@ -134,6 +134,39 @@ describe Shomen::Connections do
     writer.close
   end
 
+  it "cuts a stream whose client stopped reading without waiting for its writes" do
+    connections = Shomen::Connections.new
+    listener = TCPServer.new("127.0.0.1", 0)
+    client = TCPSocket.new("127.0.0.1", listener.local_address.port)
+    socket = listener.accept
+    socket.sync = false
+    ended = serve(connections, socket) do
+      connections.request do
+        connections.stream
+        # Small writes, as a chunked response makes: the one stuck flushes
+        # the socket's buffer, which close would flush again.
+        begin
+          loop { socket << "data: x\n\n" }
+        rescue IO::Error
+        end
+      end
+    ensure
+      socket.close rescue nil
+    end
+    # A write that succeeds does not yield, so the fiber is stuck in one now.
+    sleep 50.milliseconds
+    drained = Channel(Nil).new(1)
+    spawn do
+      connections.drain
+      drained.send(nil)
+    end
+    receive_within(drained)
+    receive_within(ended)
+    connections.wait(5.seconds).should be_true
+    client.close
+    listener.close
+  end
+
   it "closes a stream that begins after it drains" do
     connections = Shomen::Connections.new
     reader, writer = IO.pipe
