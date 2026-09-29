@@ -52,6 +52,13 @@ describe "fragment requests" do
     response.body.should contain("<title>Bad input</title>")
   end
 
+  # HTTP/2 and proxies send header names in lower case.
+  it "answers a lower-case shomen-target with the fragment" do
+    response = call_with(Shomen::Server.new, "GET", "/phase4/note", headers: HTTP::Headers{"shomen-target" => "note"})
+    response.status_code.should eq(200)
+    response.body.should start_with("<div id=\"note\">")
+  end
+
   it "sends Vary: Shomen-Target on every response" do
     ["/phase4/note", "/phase1/missing", "/phase1/boom", "/phase1/redirect"].each do |path|
       call_with(Shomen::Server.new, "GET", path).headers["Vary"].should eq("Shomen-Target")

@@ -79,7 +79,7 @@
   // id goes in a header, so an id that is not printable ASCII is left alone.
   const targetOf = (event, element, name) => {
     const target = document.getElementById(element.getAttribute(name));
-    if (!target || !/^[\x21-\x7e]+$/.test(target.id)) return null;
+    if (!target || !/^[\x21-\x2b\x2d-\x7e]+$/.test(target.id)) return null;
     event.preventDefault();
     return target.getAttribute("aria-busy") === "true" ? null : target;
   };

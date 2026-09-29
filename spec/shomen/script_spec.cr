@@ -307,6 +307,21 @@ describe "shomen.js" do
         BrowserRoutes::RECEIVED.should eq(["POST /phase4/browser/greet -"])
       end
     end
+
+    it "leaves a target id with a comma to the browser" do
+      on_page do |browser, _|
+        form = run_js(browser, <<-JS)
+          let seen = null;
+          addEventListener("submit", (event) => { seen = event.defaultPrevented; }, {once: true});
+          document.getElementById("comma-form").requestSubmit();
+          return seen;
+          JS
+        form.as_bool.should be_false
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/greet")
+        BrowserRoutes::RECEIVED.should eq(["POST /phase4/browser/greet -"])
+      end
+    end
   else
     pending("runs in Chrome (set SHOMEN_CHROME to a Chrome or Chromium binary)") { }
   end

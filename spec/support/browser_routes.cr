@@ -83,6 +83,12 @@ module BrowserRoutes
                 button "Greet", type: "submit"
               end
             end
+            div(id: "a,b") do
+              form(action: "/phase4/browser/greet", method: "post", "data-shomen-post": "a,b", id: "comma-form") do
+                csrf_field(token)
+                button "Comma", type: "submit"
+              end
+            end
           end
         end
       end

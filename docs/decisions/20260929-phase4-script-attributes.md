@@ -15,7 +15,7 @@
 - `formaction`、`formmethod`、`formenctype`、`formtarget` を持つボタンからの送信
 - 他のリスナーが `preventDefault` した操作
 - 値の `id` の要素がページに無いとき
-- 値の `id` が表示可能な ASCII（0x21〜0x7E）以外の文字を含むとき
+- 値の `id` が表示可能な ASCII（0x21〜0x7E）以外の文字か `,` を含むとき（サーバは `,` を含む値を 400 にする。同じヘッダを複数送ると `,` でつながるため）
 
 フォームの属性は `getAttribute` で読む。フォームの値は `new URLSearchParams(new FormData(form, submitter))` で urlencoded にして送る。
 
