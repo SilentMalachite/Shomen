@@ -7,6 +7,10 @@
 
   const TARGET_HEADER = "Shomen-Target";
 
+  // Targets left busy for a navigation. A page restored from the
+  // back-forward cache is not navigating any more.
+  const handedOff = new Set();
+
   const sameOrigin = (url) => url.origin === location.origin;
 
   // An element of the same id in the response replaces the target. A
@@ -16,15 +20,22 @@
     const active = document.activeElement;
     const focused = active && target.contains(active) ? active.id : "";
     target.setAttribute("aria-busy", "true");
+    // The old page stays live until a navigation commits, so it keeps the
+    // target busy and a second submit still sends nothing.
+    let navigating = false;
     try {
       let response;
       try {
         response = await fetch(url, { ...init, headers: { [TARGET_HEADER]: target.id } });
       } catch (error) {
-        if (init.method === "GET") location.assign(url);
+        if (init.method === "GET") {
+          navigating = true;
+          location.assign(url);
+        }
         throw error;
       }
       if (response.redirected) {
+        navigating = true;
         location.assign(response.url);
         return;
       }
@@ -36,15 +47,23 @@
         target.replaceWith(next);
         if (focused) document.getElementById(focused)?.focus();
       } else if (init.method === "GET") {
+        navigating = true;
         location.assign(url);
       } else {
         const page = new DOMParser().parseFromString(html, "text/html");
         document.documentElement.replaceWith(page.documentElement);
       }
     } finally {
-      target.removeAttribute("aria-busy");
+      if (navigating) handedOff.add(target);
+      else target.removeAttribute("aria-busy");
     }
   };
+
+  addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    handedOff.forEach((target) => target.removeAttribute("aria-busy"));
+    handedOff.clear();
+  });
 
   // Returns the element to replace, or null to leave the event alone.
   const targetOf = (event, element, name) => {

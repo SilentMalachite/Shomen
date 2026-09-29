@@ -21,6 +21,17 @@ private def run_js(browser : Browser, body : String) : JSON::Any
   browser.evaluate("(async () => {\n#{wait_for_js}\n#{body}\n})()")
 end
 
+# Empties a channel left over from an earlier example.
+private def drain(channel : Channel(Nil)) : Nil
+  loop do
+    select
+    when channel.receive
+    else
+      break
+    end
+  end
+end
+
 private def on_page(& : Browser, String ->) : Nil
   BrowserRoutes::RECEIVED.clear
   with_live_server do |origin|
@@ -167,6 +178,63 @@ describe "shomen.js" do
           JS
         result.as_i.should eq(1)
         BrowserRoutes::RECEIVED.should eq(["POST /phase4/browser/form box"])
+      end
+    end
+
+    it "keeps sending one request while a redirect navigation is pending" do
+      on_page do |browser, _|
+        BrowserRoutes::HOLD_HITS[0] = 0
+        drain(BrowserRoutes::HOLD_GATE)
+        drain(BrowserRoutes::HOLD_ARRIVED)
+        begin
+          result = run_js(browser, <<-JS)
+            const slot = document.getElementById("slot");
+            document.getElementById("hold").click();
+            await fetch("/phase4/browser/arrived");
+            const before = slot.getAttribute("aria-busy");
+            document.getElementById("hold-form").requestSubmit();
+            const after = slot.getAttribute("aria-busy");
+            await fetch("/phase4/browser/plain");
+            return [before, after];
+            JS
+          result.as_a.map(&.as_s?).should eq(["true", "true"])
+          BrowserRoutes::RECEIVED.select(&.starts_with?("POST")).should eq(["POST /phase4/browser/hold slot"])
+        ensure
+          BrowserRoutes::HOLD_GATE.send(nil)
+        end
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/held")
+      end
+    end
+
+    it "clears the busy mark when the page comes back from the back-forward cache" do
+      on_page do |browser, _|
+        BrowserRoutes::HOLD_HITS[0] = 10
+        browser.evaluate(<<-JS)
+          window.shows = [];
+          addEventListener("pageshow", (event) => window.shows.push(event.persisted));
+          JS
+        browser.evaluate(%(document.getElementById("hold").click()))
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/held")
+        browser.clear_events
+        browser.evaluate("history.back(); 0")
+        restore = browser.wait_for("Page.frameNavigated")
+        restore["params"]["type"].as_s.should eq("BackForwardCacheRestore")
+        result = run_js(browser, <<-JS)
+          if (window.shows.length === 0) await new Promise((resolve) => addEventListener("pageshow", resolve, {once: true}));
+          const slot = document.getElementById("slot");
+          return [location.pathname, window.shows[window.shows.length - 1], slot.getAttribute("aria-busy")];
+          JS
+        result[0].as_s.should eq("/phase4/browser")
+        result[1].as_bool.should be_true
+        result[2].as_s?.should be_nil
+        BrowserRoutes::RECEIVED.clear
+        browser.clear_events
+        browser.evaluate(%(document.getElementById("hold-form").requestSubmit(); 0))
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/held")
+        BrowserRoutes::RECEIVED.select(&.starts_with?("POST")).should eq(["POST /phase4/browser/hold slot"])
       end
     end
   else

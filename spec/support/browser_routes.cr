@@ -2,6 +2,13 @@ module BrowserRoutes
   # "METHOD path target" for each request a spec needs to count.
   RECEIVED = [] of String
 
+  # The held destination lets its first request through (the fetch following
+  # a redirect) and blocks its second (the navigation) until the spec sends
+  # on HOLD_GATE. The route Arrived answers once the second request has come.
+  HOLD_HITS    = [0]
+  HOLD_ARRIVED = Channel(Nil).new(1)
+  HOLD_GATE    = Channel(Nil).new(1)
+
   class SlotFragment < Shomen::Fragment
     def initialize(@message : String)
     end
@@ -55,6 +62,10 @@ module BrowserRoutes
             end
             a "Plain", href: "/phase4/browser/plain", "data-shomen-get": "slot", id: "plain"
             embed FormFragment.new("", token, nil)
+            form(action: "/phase4/browser/hold", method: "post", "data-shomen-post": "slot", id: "hold-form") do
+              csrf_field(token)
+              button "Hold", type: "submit", id: "hold"
+            end
             form(action: "/phase4/browser/conflict", method: "post", "data-shomen-post": "slot") do
               csrf_field(token)
               button "Clash", type: "submit", id: "clash"
@@ -150,6 +161,50 @@ module BrowserRoutes
     def call(input : Input) : Shomen::Response
       RECEIVED << "POST /phase4/browser/conflict #{target || "-"}"
       raise Shomen::Conflict.new("stream browser-1 is at version 1, expected 0")
+    end
+  end
+
+  class Hold < Shomen::Route
+    method POST
+    path "/phase4/browser/hold"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "POST /phase4/browser/hold #{target || "-"}"
+      redirect("/phase4/browser/held")
+    end
+  end
+
+  # Answers once the held request has come, so a page can wait for it.
+  class Arrived < Shomen::Route
+    method GET
+    path "/phase4/browser/arrived"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      HOLD_ARRIVED.receive
+      render PlainView.new
+    end
+  end
+
+  class Held < Shomen::Route
+    method GET
+    path "/phase4/browser/held"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      HOLD_HITS[0] += 1
+      if HOLD_HITS[0] == 2
+        HOLD_ARRIVED.send(nil)
+        HOLD_GATE.receive
+      end
+      render PlainView.new
     end
   end
 end

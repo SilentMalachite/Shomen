@@ -4,7 +4,7 @@
 
 # 決定
 
-`spec/support/browser.cr` に、標準ライブラリの `HTTP::WebSocket` と `HTTP::Client` だけで書いた DevTools プロトコルのクライアント `Browser` を置く。Chrome を `--headless --remote-debugging-port=0` と一時プロファイルで起動し、標準エラーの `DevTools listening on ws://…` から接続先を読む。`Page.enable`、`Page.navigate`、`Page.loadEventFired`、`Runtime.evaluate`（`awaitPromise`）、`Browser.close`、`PUT /json/new` だけを使う。`Browser.close` で Chrome を正常終了させ、Chrome 自身にロックファイルやソケットを片付けさせる（SIGTERM では片付けずに終わる）。20 秒で終わらなければ強制終了する。
+`spec/support/browser.cr` に、標準ライブラリの `HTTP::WebSocket` と `HTTP::Client` だけで書いた DevTools プロトコルのクライアント `Browser` を置く。Chrome を `--headless --remote-debugging-port=0` と一時プロファイルで起動し、標準エラーの `DevTools listening on ws://…` から接続先を読む。`Page.enable`、`Page.navigate`、`Page.loadEventFired`、`Page.frameNavigated`（戻る／進むキャッシュからの復元の待機）、`Runtime.evaluate`（`awaitPromise`）、`Browser.close`、`PUT /json/new` だけを使う。`Browser#clear_events` で待つ前に古いイベントを捨てる。`Browser.close` で Chrome を正常終了させ、Chrome 自身にロックファイルやソケットを片付けさせる（SIGTERM では片付けずに終わる）。20 秒で終わらなければ強制終了する。
 
 Chrome は `SHOMEN_CHROME`、macOS の `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`、`PATH` の `google-chrome`、`chromium`、`chromium-browser` の順に探す。見つからなければブラウザ spec は `pending` になる。
 

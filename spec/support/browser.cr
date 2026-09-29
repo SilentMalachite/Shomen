@@ -104,6 +104,11 @@ class Browser
     result["result"]["value"]? || JSON::Any.new(nil)
   end
 
+  # Forgets buffered events, so the next wait_for sees only later ones.
+  def clear_events : Nil
+    @events.clear
+  end
+
   def wait_for(event : String) : JSON::Any
     if index = @events.index { |message| message["method"]?.try(&.as_s?) == event }
       return @events.delete_at(index)
