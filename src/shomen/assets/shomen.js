@@ -38,7 +38,9 @@
   };
 
   // Each message is a fragment. It replaces the element with the same id
-  // inside the holder; a fragment for any other element is dropped.
+  // inside the holder; a fragment for any other element is dropped. A
+  // redirect can take the stream to another origin, so a message from one
+  // closes it unread.
   const listen = (root) => {
     within(root, "[data-shomen-sse]").forEach((holder) => {
       if (sources.has(holder)) return;
@@ -47,6 +49,10 @@
       const source = new EventSource(url);
       sources.set(holder, source);
       source.addEventListener("message", (event) => {
+        if (event.origin !== location.origin) {
+          source.close();
+          return;
+        }
         const template = document.createElement("template");
         template.innerHTML = event.data;
         const next = template.content.firstElementChild;

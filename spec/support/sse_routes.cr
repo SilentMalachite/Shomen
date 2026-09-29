@@ -171,6 +171,67 @@ module SSERoutes
     end
   end
 
+  # Where Detour sends a stream: this server under another host name,
+  # which is another origin to the page.
+  FAR = [""]
+
+  class Detour < Shomen::Route
+    method GET
+    path "/phase5/detour"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      redirect SSERoutes::FAR[0], 302
+    end
+  end
+
+  # Lets any origin read it, so only shomen.js keeps its HTML off the page.
+  class Far < Shomen::Route
+    method GET
+    path "/phase5/far"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      response = sse(SSERoutes.store!, heartbeat: SSERoutes::HEARTBEAT) { CountFragment.new("far-count", 99) }
+      response.headers["Access-Control-Allow-Origin"] = "*"
+      response
+    end
+  end
+
+  class DetourView < Shomen::View
+    def to_html : String
+      html lang: "en" do
+        head do
+          title "Detour"
+          shomen_script
+        end
+        body do
+          main do
+            div(id: "detour", "data-shomen-sse": Detour.path) do
+              p "near", id: "far-count"
+            end
+          end
+        end
+      end
+    end
+  end
+
+  class DetourPage < Shomen::Route
+    method GET
+    path "/phase5/detour-page"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      render DetourView.new
+    end
+  end
+
   class Swap < Shomen::Route
     method GET
     path "/phase5/swap"

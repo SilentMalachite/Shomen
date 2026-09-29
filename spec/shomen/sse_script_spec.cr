@@ -95,6 +95,34 @@ describe "shomen.js with SSE" do
       end
     end
 
+    it "closes a stream a redirect took to another origin and drops its message" do
+      with_store do |store|
+        SSERoutes.store = store
+        begin
+          with_live_server do |origin|
+            SSERoutes::FAR[0] = origin.sub("127.0.0.1", "localhost") + SSERoutes::Far.path
+            with_browser do |browser|
+              browser.before_load(PAGE_SPY)
+              browser.visit("#{origin}#{SSERoutes::DetourPage.path}")
+              result = browser.run(<<-JS)
+                const source = await waitFor(() => window.shomenSeen.sources[0]);
+                const text = () => document.getElementById("far-count").textContent;
+                // Closing changes nothing on the page, so this looks again every 20 ms.
+                await new Promise((resolve) => {
+                  const look = () => source.readyState === EventSource.CLOSED || text() !== "near" ? resolve() : setTimeout(look, 20);
+                  look();
+                });
+                return text();
+                JS
+              result.as_s.should eq("near")
+            end
+          end
+        ensure
+          SSERoutes.store = nil
+        end
+      end
+    end
+
     it "opens no stream on a page without data-shomen-sse" do
       with_live_server do |origin|
         with_browser do |browser|
