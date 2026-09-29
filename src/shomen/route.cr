@@ -1,8 +1,24 @@
 require "http"
+require "json"
 require "uri"
 
 abstract class Shomen::Route
+  TARGET_HEADER = "Shomen-Target"
+
   property csrf_token : String = ""
+  property target : String? = nil
+
+  # The id of the element shomen.js replaces with this response, or nil
+  # for a request that did not come from shomen.js. An id is not empty and
+  # has no whitespace or comma; two headers are joined with ',' and fail too.
+  def self.target_of(request : HTTP::Request) : String?
+    value = request.headers[TARGET_HEADER]?
+    return nil unless value
+    if value.empty? || !value.valid_encoding? || value.includes?(',') || value.each_char.any?(&.ascii_whitespace?)
+      raise Shomen::BadInput.new("invalid #{TARGET_HEADER} header")
+    end
+    value
+  end
 
   module Hooks
     macro included
@@ -60,6 +76,7 @@ abstract class Shomen::Route
             )
             route = new
             route.csrf_token = csrf_token
+            route.target = ::Shomen::Route.target_of(request)
             route.call(input)
           {% end %}
         {% end %}
@@ -146,6 +163,18 @@ abstract class Shomen::Route
 
   def render(view : Shomen::View, status : Int32 = 200) : Shomen::Response
     Shomen::Response.html(view.to_html, status)
+  end
+
+  def render(view : Shomen::Fragment, status : Int32 = 200) : Shomen::Response
+    {% raise "render takes a document view; send a Shomen::Fragment with render_fragment" %}
+  end
+
+  def render_fragment(view : Shomen::Fragment, status : Int32 = 200) : Shomen::Response
+    Shomen::Response.html(view.to_html, status)
+  end
+
+  def json(value, status : Int32 = 200) : Shomen::Response
+    Shomen::Response.new(status, "application/json", value.to_json)
   end
 
   def redirect(location : String, status : Int32 = 303) : Shomen::Response

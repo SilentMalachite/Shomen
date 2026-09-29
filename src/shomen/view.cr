@@ -1,4 +1,7 @@
 abstract class Shomen::View
+  # The path the official JavaScript is served at.
+  SCRIPT_PATH = "/shomen.js"
+
   abstract def to_html : String
 
   # Subclass constructors in specs do not call super. A class-body
@@ -11,6 +14,10 @@ abstract class Shomen::View
 
   def raw(value : String) : Nil
     @out << value
+  end
+
+  def embed(fragment : Shomen::Fragment) : Nil
+    @out << fragment.to_html
   end
 
   protected def result : String
@@ -67,5 +74,10 @@ abstract class Shomen::View
 
   def csrf_field(token : String) : Nil
     void_tag("input", {type: "hidden", name: "_csrf", value: token})
+  end
+
+  # The only script element the DSL writes.
+  def shomen_script : Nil
+    @out << "<script src=\"" << SCRIPT_PATH << "\" defer></script>"
   end
 end

@@ -1,8 +1,8 @@
 require "http"
 require "http/client"
 
-def call_with(server : Shomen::Server, method : String, path : String, cookie : String? = nil, body : String? = nil, content_type : String = "application/x-www-form-urlencoded") : HTTP::Client::Response
-  headers = HTTP::Headers.new
+def call_with(server : Shomen::Server, method : String, path : String, cookie : String? = nil, body : String? = nil, content_type : String = "application/x-www-form-urlencoded", headers : HTTP::Headers = HTTP::Headers.new) : HTTP::Client::Response
+  headers = headers.dup
   headers["Cookie"] = cookie if cookie
   headers["Content-Type"] = content_type if body
   io = IO::Memory.new
