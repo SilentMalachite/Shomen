@@ -13,9 +13,7 @@ module Shomen::Island
     end
 
     def call(input : Input) : Shomen::Response
-      headers = HTTP::Headers.new
-      headers["X-Content-Type-Options"] = "nosniff"
-      Shomen::Response.new(200, "text/javascript; charset=utf-8", SOURCE, headers)
+      Shomen::Response.new(200, "text/javascript; charset=utf-8", SOURCE)
     end
   end
 end

@@ -60,6 +60,10 @@ describe "Greeting with shomen.js" do
     response = request_with(server, "POST", "/greeting", "greeting-form", cookie, body)
     response.status_code.should eq(303)
     response.headers["Location"].should eq("/greeting/Ada")
+
+    plain = request_with(server, "POST", "/greeting", nil, cookie, body)
+    plain.status_code.should eq(303)
+    plain.headers["Location"].should eq("/greeting/Ada")
   end
 
   it "serves shomen.js" do

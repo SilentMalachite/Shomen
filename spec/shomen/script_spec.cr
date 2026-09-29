@@ -152,16 +152,21 @@ describe "shomen.js" do
           blank.id = "blank";
           blank.target = "_blank";
           document.body.append(blank);
-          return [
+          const browserCases = [
             prevented(farLink, {}),
             prevented(load, {ctrlKey: true}),
             prevented(load, {metaKey: true}),
             prevented(load, {button: 1}),
             prevented(blank, {}),
           ];
+          const done = waitFor(() => document.getElementById("slot").textContent.includes("loaded") ? true : undefined);
+          const control = prevented(load, {});
+          if (control) await done;
+          return {cases: browserCases, control};
           JS
-        result.as_a.map(&.as_bool).should eq([false, false, false, false, false])
-        BrowserRoutes::RECEIVED.should be_empty
+        result["cases"].as_a.map(&.as_bool).should eq([false, false, false, false, false])
+        result["control"].as_bool.should be_true
+        BrowserRoutes::RECEIVED.should eq(["GET /phase4/browser/slot slot"])
       end
     end
 
