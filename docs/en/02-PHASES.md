@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 4 — fragments and fetch**
+**Phase 5 — SSE and islands**
 
-Phase 4 acceptance is met. Do not implement past this point (phase 5 and later). Wait for the next instruction.
+Phase 5 acceptance is met. Do not implement past this point (phase 6 and later). Wait for the next instruction.
 
 ---
 
