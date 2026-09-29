@@ -1,4 +1,5 @@
 require "shomen"
+require "./users"
 
 module Hello
   class ShowView < Shomen::View
@@ -135,4 +136,7 @@ module Greeting
   end
 end
 
-Shomen::Server.start unless ENV["SHOMEN_SPEC"]?
+unless ENV["SHOMEN_SPEC"]?
+  Users::NAMES.catch_up
+  Shomen::Server.start
+end

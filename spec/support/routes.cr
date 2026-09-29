@@ -228,3 +228,17 @@ module ServerRoutes
     end
   end
 end
+
+module ConflictRoutes
+  class Clash < Shomen::Route
+    method GET
+    path "/phase3/conflict"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      raise Shomen::Conflict.new("stream secret-7 is at version 2, expected 1")
+    end
+  end
+end

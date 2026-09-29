@@ -4,14 +4,15 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 2 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策が動きます。それより後のフェーズは仕様にあり、実装はまだありません。リリースタグもまだありません。
+バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 3 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、追記のみの SQLite イベントストア、メモリ上のプロジェクションが動きます。それより後のフェーズは仕様にあり、実装はまだありません。リリースタグもまだありません。
 
 ## 必要なもの
 
 - Crystal 1.20 以上
 - shards
+- SQLite 3 のライブラリ（`libsqlite3`）
 
-フレームワーク本体の shard に依存パッケージはありません。
+フレームワーク本体の shard は crystal-lang の `sqlite3` と `db` に依存します。
 
 ## サンプルを動かす
 
@@ -73,7 +74,7 @@ Shomen::Server.start
 
 サーバの待受は `127.0.0.1:3000` です。一致したルートは 200 の HTML、パスパラメータの変換失敗は 400、未知のパスと `Shomen::NotFound` は 404 の HTML、処理されない例外はメッセージをエスケープした 500 の HTML です。すべての応答に `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY` が付きます。
 
-## いま動くのはフェーズ 1 と 2
+## いま動くのはフェーズ 1 から 3
 
 フェーズ 1 で入っているもの:
 
@@ -93,7 +94,15 @@ Shomen::Server.start
 - すべての `input` に、同じビューの中のラベルを求めるコンパイル時検査。`for:` が `input` の `id:` と一致する `label`（どちらも文字列リテラル）、囲む `label`、空でない `"aria-label"` か `"aria-labelledby"` のいずれか。ビューの別メソッド、親のビュー、include したモジュールも数える。`type: "hidden"` は対象外。送信には `button` を使う
 - `examples/hello` の `GET /greeting`、`POST /greeting`、`GET /greeting/:name`
 
-SQLite、コマンドとイベント、HTML 断片、公式 JavaScript、SSE、島、Postgres、1 つの DB の上で同じプロセスを多数動かすことは、後のフェーズの仕様であり、コードにはありません。
+フェーズ 3 で足したもの:
+
+- `Shomen::Event`: `event_type "name"` を宣言する struct。名前は `type` 列に入るので、Crystal の型名を変えても古い行を読めます。名前の書き忘れと重複はコンパイルエラーです
+- `Shomen::Command`: `call` は `Array(Shomen::Event)` か、422 のフォームに出すメッセージを持つ `Shomen::Rejected` を返します
+- `Shomen::Store.new("sqlite3://./var/shomen.sqlite3")`: `append(stream, expected_version, events)` と `read(after:, limit:)`。ファイルは WAL です。ストリームの現在の版と違う版での追記は、何も書かずに `Shomen::Conflict` を投げます。捕まえなかった衝突は 409 の HTML 文書になります
+- `Shomen::Projection`: 各イベントを `apply` します。`catch_up` はチェックポイントより後のイベントを、別のプロセスが追記したものも含めて適用します。ビューが読む前に呼び、起動時の再構築には `Shomen::Server.start` の前に 1 回呼びます
+- `examples/hello` の `GET /users/:id/edit`、`POST /users/:id`、`GET /users/:id`
+
+HTML 断片、JSON 応答、公式 JavaScript、SSE、島、Postgres、1 つの DB の上で同じプロセスを多数動かすことは、後のフェーズの仕様であり、コードにはありません。
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 

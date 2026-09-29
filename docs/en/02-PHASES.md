@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 2 — forms and sessions**
+**Phase 3 — commands, events, and SQLite**
 
-Phase 1 acceptance is met. Do not implement past this point (phase 3 and later). When phase 2 acceptance is met, stop and wait for the next instruction.
+Phase 2 acceptance is met. Do not implement past this point (phase 4 and later). When phase 3 acceptance is met, stop and wait for the next instruction.
 
 ---
 
