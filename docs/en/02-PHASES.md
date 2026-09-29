@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 3 — commands, events, and SQLite**
+**Phase 4 — fragments and fetch**
 
-Phase 2 acceptance is met. Do not implement past this point (phase 4 and later). When phase 3 acceptance is met, stop and wait for the next instruction.
+Phase 3 acceptance is met. Do not implement past this point (phase 5 and later). When phase 4 acceptance is met, stop and wait for the next instruction.
 
 ---
 

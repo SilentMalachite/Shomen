@@ -104,6 +104,8 @@ class Shomen::Server
       name, values = entry
       context.response.headers[name] = values
     end
+    # A route may answer one URL with a document or a fragment.
+    context.response.headers.add("Vary", Shomen::Route::TARGET_HEADER)
     # Behind HTTPS the cookie goes out every time, so one issued over HTTP
     # before the switch is replaced with a Secure one.
     if session.fresh? || @https

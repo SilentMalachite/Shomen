@@ -149,6 +149,7 @@ DSL は HTML 要素に対応するメソッドを提供する。最低限:
 
 - `render(view)` → 200 + `text/html; charset=utf-8`
 - `render_fragment(view)` → 200 + 断片。文書の `<html>` を含めない
+- `json(value, status = 200)` → `application/json` + `value.to_json`。サーバが自分で JSON を選ぶことはない
 - `redirect(path, status = 303)`
 
 セキュリティヘッダはサーバ既定で付ける。
@@ -240,7 +241,7 @@ end
 - `Shomen::Conflict`（フェーズ 3 以降）。捕まえられなければ 409 の HTML 文書
 - `Shomen::Unavailable`（フェーズ 7 以降）。見る必要がある `id` に上限時間内に届かない読みが投げる。捕まえられなければ 503 の HTML 文書
 
-JSON エラー形式はフェーズ 4 まで定義しない。
+エラーは、JSON を返すルートでも HTML 文書で返す。JSON のエラー形式は無い（`docs/decisions/20260929-phase4-json-response.md`）。
 
 ### 10. スケールアウト（フェーズ 6–7）
 

@@ -149,6 +149,7 @@ Helpers:
 
 - `render(view)` returns 200 and `text/html; charset=utf-8`
 - `render_fragment(view)` returns 200 and a fragment, without a document `<html>`
+- `json(value, status = 200)` returns `application/json` with `value.to_json`. The server never chooses JSON on its own
 - `redirect(path, status = 303)`
 
 The server attaches security headers by default.
@@ -240,7 +241,7 @@ User-facing HTML and internal exceptions stay separate.
 - `Shomen::Conflict` (phase 3 onward). An unhandled one is a 409 HTML document
 - `Shomen::Unavailable` (phase 7 onward). A read that cannot reach the `id` it must see within the limit raises it. An unhandled one is a 503 HTML document
 
-A JSON error format is undefined until phase 4.
+Errors are HTML documents, also for a route that returns JSON. There is no JSON error format (`docs/decisions/20260929-phase4-json-response.md`).
 
 ### 10. Scale out (phases 6–7)
 

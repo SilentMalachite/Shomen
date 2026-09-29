@@ -29,30 +29,43 @@ module Hello
 end
 
 module Greeting
-  class EditView < Shomen::View
+  class FormView < Shomen::Fragment
     def initialize(@name : String, @token : String, @error : String?)
     end
 
-    def to_html : String
+    def content : Nil
       name = @name
       token = @token
       error = @error
+      div(id: "greeting-form") do
+        if message = error
+          p message, role: "alert"
+        end
+        form(action: Greeting::Update.path, method: "post", "data-shomen-post": "greeting-form") do
+          csrf_field(token)
+          label("Name", for: "name")
+          input(id: "name", name: "name", type: "text", value: name)
+          button "Save", type: "submit", id: "greeting-save"
+        end
+      end
+    end
+  end
+
+  class EditView < Shomen::View
+    def initialize(@form : FormView)
+    end
+
+    def to_html : String
+      form_view = @form
       html lang: "en" do
         head do
           title "Greeting"
+          shomen_script
         end
         body do
           main do
             h1 "Greeting"
-            if message = error
-              p message
-            end
-            form(action: Greeting::Update.path, method: "post") do
-              csrf_field(token)
-              label("Name", for: "name")
-              input(id: "name", name: "name", type: "text", value: name)
-              button "Save", type: "submit"
-            end
+            embed form_view
           end
         end
       end
@@ -68,11 +81,14 @@ module Greeting
       html lang: "en" do
         head do
           title "Greeting"
+          shomen_script
         end
         body do
           main do
             h1 "Hello, #{name}"
-            a "Change", href: Greeting::Edit.path
+            div(id: "greeting-form") do
+              a "Change", href: Greeting::Edit.path, "data-shomen-get": "greeting-form"
+            end
           end
         end
       end
@@ -87,7 +103,9 @@ module Greeting
     end
 
     def call(input : Input) : Shomen::Response
-      render EditView.new("", csrf_token, nil)
+      form_view = FormView.new("", csrf_token, nil)
+      return render_fragment(form_view) if target
+      render EditView.new(form_view)
     end
   end
 
@@ -104,18 +122,20 @@ module Greeting
 
     def call(input : Input) : Shomen::Response
       name = input.name.strip
-      if name.size < 2
-        return render EditView.new(input.name, csrf_token, "Name must be at least 2 characters"), status: 422
-      end
+      return redisplay(input.name, "Name must be at least 2 characters") if name.size < 2
       # The path helper refuses these characters in a path parameter.
       if name.includes?('/') || name.includes?('?') || name.includes?('#')
-        return render EditView.new(input.name, csrf_token, "Name must not contain /, ?, or #"), status: 422
+        return redisplay(input.name, "Name must not contain /, ?, or #")
       end
       # The path helper refuses .. too, since a browser resolves /greeting/.. to /.
-      if name == ".."
-        return render EditView.new(input.name, csrf_token, "Name must not be .."), status: 422
-      end
+      return redisplay(input.name, "Name must not be ..") if name == ".."
       redirect Show.path(name: name)
+    end
+
+    private def redisplay(name : String, error : String) : Shomen::Response
+      form_view = FormView.new(name, csrf_token, error)
+      return render_fragment(form_view, status: 422) if target
+      render EditView.new(form_view), status: 422
     end
   end
 

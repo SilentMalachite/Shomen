@@ -44,7 +44,7 @@ cd examples/hello && shards install && crystal spec
 
 `crystal build` writes `./shomen` in the root. Leave it uncommitted.
 
-Specs call the handler directly or build a fixture. They do not bind a fixed public port.
+Specs call the handler directly or build a fixture. They do not bind a fixed public port. The `shomen.js` specs serve on an ephemeral port on 127.0.0.1 and drive a headless Chrome. Without Chrome they are pending; `SHOMEN_CHROME` names the binary.
 
 ## Commits
 
