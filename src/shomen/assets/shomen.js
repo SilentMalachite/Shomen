@@ -13,6 +13,13 @@
 
   const sameOrigin = (url) => url.origin === location.origin;
 
+  // Only an HTML response is parsed. Other types, such as JSON, may carry
+  // markup from user input.
+  const isHTML = (response) => {
+    const type = response.headers.get("Content-Type") || "";
+    return type.split(";")[0].trim().toLowerCase() === "text/html";
+  };
+
   // An element of the same id in the response replaces the target. A
   // redirect loads its page. Otherwise a GET loads the URL, and a POST,
   // which must not be sent twice, shows the response as the page.
@@ -24,9 +31,18 @@
     // target busy and a second submit still sends nothing.
     let navigating = false;
     try {
-      let response;
+      let html;
+      // A failed fetch, a failed body read, and a response that is not
+      // HTML end the same way: a GET loads the URL, a POST leaves the page.
       try {
-        response = await fetch(url, { ...init, headers: { [TARGET_HEADER]: target.id } });
+        const response = await fetch(url, { ...init, headers: { [TARGET_HEADER]: target.id } });
+        if (response.redirected) {
+          navigating = true;
+          location.assign(response.url);
+          return;
+        }
+        if (!isHTML(response)) throw new TypeError(`${url} did not answer HTML`);
+        html = await response.text();
       } catch (error) {
         if (init.method === "GET") {
           navigating = true;
@@ -34,12 +50,6 @@
         }
         throw error;
       }
-      if (response.redirected) {
-        navigating = true;
-        location.assign(response.url);
-        return;
-      }
-      const html = await response.text();
       const template = document.createElement("template");
       template.innerHTML = html;
       const next = template.content.getElementById(target.id);
@@ -65,10 +75,11 @@
     handedOff.clear();
   });
 
-  // Returns the element to replace, or null to leave the event alone.
+  // Returns the element to replace, or null to leave the event alone. The
+  // id goes in a header, so an id that is not printable ASCII is left alone.
   const targetOf = (event, element, name) => {
     const target = document.getElementById(element.getAttribute(name));
-    if (!target) return null;
+    if (!target || !/^[\x21-\x7e]+$/.test(target.id)) return null;
     event.preventDefault();
     return target.getAttribute("aria-busy") === "true" ? null : target;
   };

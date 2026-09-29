@@ -242,6 +242,71 @@ describe "shomen.js" do
         BrowserRoutes::RECEIVED.select(&.starts_with?("POST")).should eq(["POST /phase4/browser/hold slot"])
       end
     end
+
+    it "loads the URL instead of inserting a GET response that is not HTML" do
+      on_page do |browser, _|
+        browser.evaluate(%(document.getElementById("json-link").click(); 0))
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/json")
+        BrowserRoutes::RECEIVED.should eq(["GET /phase4/browser/json slot", "GET /phase4/browser/json -"])
+      end
+    end
+
+    it "leaves the page alone when a POST response is not HTML" do
+      on_page do |browser, _|
+        result = run_js(browser, <<-JS)
+          const slot = document.getElementById("slot");
+          const done = waitFor(() => {
+            const now = document.getElementById("slot");
+            if (now !== slot || now.querySelector("img")) return "replaced";
+            return slot.hasAttribute("aria-busy") ? undefined : "kept";
+          });
+          document.getElementById("json-form").requestSubmit();
+          return {state: await done, text: document.getElementById("slot")?.textContent, path: location.pathname};
+          JS
+        result["state"].as_s.should eq("kept")
+        result["text"].as_s.should eq("Load")
+        result["path"].as_s.should eq("/phase4/browser")
+        BrowserRoutes::RECEIVED.should eq(["POST /phase4/browser/json slot"])
+      end
+    end
+
+    it "loads the URL when the body of a GET response fails to arrive" do
+      on_page do |browser, _|
+        browser.evaluate(%(document.getElementById("short-link").click(); 0))
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/short")
+        BrowserRoutes::RECEIVED.should eq(["GET /phase4/browser/short slot", "GET /phase4/browser/short -"])
+      end
+    end
+
+    it "leaves a target id that cannot be a header value to the browser" do
+      on_page do |browser, origin|
+        link = run_js(browser, <<-JS)
+          let seen = null;
+          addEventListener("click", (event) => { seen = event.defaultPrevented; }, {once: true});
+          document.getElementById("greet-link").click();
+          return seen;
+          JS
+        link.as_bool.should be_false
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/plain")
+        BrowserRoutes::RECEIVED.should eq(["GET /phase4/browser/plain -"])
+
+        BrowserRoutes::RECEIVED.clear
+        browser.visit("#{origin}/phase4/browser")
+        form = run_js(browser, <<-JS)
+          let seen = null;
+          addEventListener("submit", (event) => { seen = event.defaultPrevented; }, {once: true});
+          document.getElementById("greet-form").requestSubmit();
+          return seen;
+          JS
+        form.as_bool.should be_false
+        browser.wait_for("Page.loadEventFired")
+        browser.evaluate("location.pathname").as_s.should eq("/phase4/browser/greet")
+        BrowserRoutes::RECEIVED.should eq(["POST /phase4/browser/greet -"])
+      end
+    end
   else
     pending("runs in Chrome (set SHOMEN_CHROME to a Chrome or Chromium binary)") { }
   end

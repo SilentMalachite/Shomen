@@ -43,6 +43,15 @@ describe "fragment requests" do
     call_with(Shomen::Server.new, "GET", "/phase4/target", headers: targeted("a", "b")).status_code.should eq(400)
   end
 
+  # HTTP::Headers reads Shomen_Target as Shomen-Target, but a cache keyed by
+  # Vary: Shomen-Target does not, so the fragment must not answer it.
+  it "answers Shomen_Target with 400" do
+    response = call_with(Shomen::Server.new, "GET", "/phase4/note", headers: HTTP::Headers{"Shomen_Target" => "note"})
+    response.status_code.should eq(400)
+    response.body.should start_with("<!DOCTYPE html>")
+    response.body.should contain("<title>Bad input</title>")
+  end
+
   it "sends Vary: Shomen-Target on every response" do
     ["/phase4/note", "/phase1/missing", "/phase1/boom", "/phase1/redirect"].each do |path|
       call_with(Shomen::Server.new, "GET", path).headers["Vary"].should eq("Shomen-Target")

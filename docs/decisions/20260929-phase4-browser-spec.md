@@ -8,11 +8,11 @@
 
 Chrome は `SHOMEN_CHROME`、macOS の `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`、`PATH` の `google-chrome`、`chromium`、`chromium-browser` の順に探す。見つからなければブラウザ spec は `pending` になる。
 
-ブラウザ spec は `Shomen::Server` を `127.0.0.1` の一時ポートで動かす。待ちはページ内の `MutationObserver` と DevTools のイベントで行い、20 秒を過ぎたら失敗にする。
+ブラウザ spec は `Shomen::Server` を `127.0.0.1` の一時ポートで動かす。待ちはページ内の `MutationObserver` と DevTools のイベントで行い、20 秒を過ぎたら失敗にする。20 秒は 1 つの操作（コマンドの応答、イベントの待機）全体の期限で、無関係なイベントが届いても延びない。起動時の `PUT /json/new` の接続と読み込み、WebSocket のハンドシェイクもそれぞれ 20 秒で打ち切る。起動が失敗したときは Chrome を終わらせ、一時プロファイルを消す。Chrome を起動できなかったとき（`SHOMEN_CHROME` が存在しないファイルを指すなど）もプロファイルを消す。
 
 # 理由
 
-受入を手で確かめるだけでは回帰を捕まえられない。CDP は WebSocket と JSON だけで話せるので、shard も npm も足さずに済む。Chrome が無い環境で `crystal spec` 全体を落とさないために `pending` にし、フェーズの完了確認では Chrome のある開発機で pending が 0 件であることを確かめる。計画時にユーザーがこの案を選んだ。
+受入を手で確かめるだけでは回帰を捕まえられない。待ちに期限が無いと、接続先を出力した後に止まった Chrome が spec 全体を止め、Chrome とプロファイルが残る。メッセージごとの期限では、無関係なイベントが届き続けると待ちが終わらない。CDP は WebSocket と JSON だけで話せるので、shard も npm も足さずに済む。Chrome が無い環境で `crystal spec` 全体を落とさないために `pending` にし、フェーズの完了確認では Chrome のある開発機で pending が 0 件であることを確かめる。計画時にユーザーがこの案を選んだ。
 
 # 破棄した案
 

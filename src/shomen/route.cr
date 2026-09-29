@@ -11,7 +11,14 @@ abstract class Shomen::Route
   # The id of the element shomen.js replaces with this response, or nil
   # for a request that did not come from shomen.js. An id is not empty and
   # has no whitespace or comma; two headers are joined with ',' and fail too.
+  # HTTP::Headers reads '_' as '-', but Vary does not, so a name such as
+  # Shomen_Target fails as well.
   def self.target_of(request : HTTP::Request) : String?
+    request.headers.each do |name, _|
+      if name.downcase.tr("_", "-") == TARGET_HEADER.downcase && name.compare(TARGET_HEADER, case_insensitive: true) != 0
+        raise Shomen::BadInput.new("invalid #{TARGET_HEADER} header")
+      end
+    end
     value = request.headers[TARGET_HEADER]?
     return nil unless value
     if value.empty? || !value.valid_encoding? || value.includes?(',') || value.each_char.any?(&.ascii_whitespace?)

@@ -52,7 +52,40 @@ class Browser
   rescue IO::Error
   end
 
+  # Opens a page target over HTTP, with each wait bounded by LIMIT.
+  def self.open_page(host : String, port : Int32) : URI
+    client = HTTP::Client.new(host, port)
+    client.connect_timeout = LIMIT
+    client.read_timeout = LIMIT
+    client.write_timeout = LIMIT
+    begin
+      page = JSON.parse(client.exec("PUT", "/json/new?about:blank").body)
+      URI.parse(page["webSocketDebuggerUrl"].as_s)
+    ensure
+      client.close
+    end
+  end
+
+  # HTTP::WebSocket.new has no timeout, so a fiber runs the handshake and
+  # the wait for it is bounded.
+  def self.connect(uri : URI) : HTTP::WebSocket
+    opened = Channel(HTTP::WebSocket | Exception).new(1)
+    spawn do
+      opened.send(HTTP::WebSocket.new(uri))
+    rescue ex
+      opened.send(ex)
+    end
+    select
+    when result = opened.receive
+      raise result if result.is_a?(Exception)
+      result
+    when timeout(LIMIT)
+      raise "Chrome did not open the DevTools socket within #{LIMIT}"
+    end
+  end
+
   @profile : String
+  @process : Process
   @socket : HTTP::WebSocket?
   @inbox = Channel(JSON::Any).new(256)
   @events = [] of JSON::Any
@@ -61,19 +94,25 @@ class Browser
   def initialize(executable : String)
     @profile = File.tempname("shomen-chrome")
     Dir.mkdir(@profile)
-    @process = Process.new(executable, [
-      "--headless",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--user-data-dir=#{@profile}",
-      "--remote-debugging-port=0",
-      "about:blank",
-    ], error: :pipe)
+    # The profile goes too if Chrome cannot be started.
+    process = begin
+      Process.new(executable, [
+        "--headless",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--user-data-dir=#{@profile}",
+        "--remote-debugging-port=0",
+        "about:blank",
+      ], error: :pipe)
+    rescue ex
+      FileUtils.rm_rf(@profile)
+      raise ex
+    end
+    @process = process
     begin
       host, port = Browser.endpoint(@process.error)
-      page = JSON.parse(HTTP::Client.new(host, port).exec("PUT", "/json/new?about:blank").body)
-      socket = HTTP::WebSocket.new(URI.parse(page["webSocketDebuggerUrl"].as_s))
+      socket = Browser.connect(Browser.open_page(host, port))
       @socket = socket
       inbox = @inbox
       socket.on_message { |message| inbox.send(JSON.parse(message)) }
@@ -113,8 +152,9 @@ class Browser
     if index = @events.index { |message| message["method"]?.try(&.as_s?) == event }
       return @events.delete_at(index)
     end
+    deadline = Time.instant + LIMIT
     loop do
-      message = receive
+      message = receive(deadline)
       return message if message["method"]?.try(&.as_s?) == event
       @events << message
     end
@@ -123,9 +163,10 @@ class Browser
   def command(method : String, params = NamedTuple.new) : JSON::Any
     @next_id += 1
     id = @next_id
+    deadline = Time.instant + LIMIT
     socket.send({id: id, method: method, params: params}.to_json)
     loop do
-      message = receive
+      message = receive(deadline)
       if message["id"]?.try(&.as_i?) == id
         if error = message["error"]?
           raise "#{method} failed: #{error.to_json}"
@@ -193,12 +234,16 @@ class Browser
     end
   end
 
-  private def receive : JSON::Any
+  # Other messages do not extend the wait: the caller's deadline holds for
+  # the whole operation.
+  private def receive(deadline : Time::Instant) : JSON::Any
+    left = deadline - Time.instant
+    raise "no answer from Chrome within #{LIMIT}" unless left.positive?
     select
     when message = @inbox.receive
       message
-    when timeout(LIMIT)
-      raise "no message from Chrome within #{LIMIT}"
+    when timeout(left)
+      raise "no answer from Chrome within #{LIMIT}"
     end
   end
 end

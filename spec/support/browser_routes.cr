@@ -70,6 +70,19 @@ module BrowserRoutes
               csrf_field(token)
               button "Clash", type: "submit", id: "clash"
             end
+            a "Json", href: "/phase4/browser/json", "data-shomen-get": "slot", id: "json-link"
+            form(action: "/phase4/browser/json", method: "post", "data-shomen-post": "slot", id: "json-form") do
+              csrf_field(token)
+              button "Json", type: "submit"
+            end
+            a "Short", href: "/phase4/browser/short", "data-shomen-get": "slot", id: "short-link"
+            div(id: "挨拶") do
+              a "Greet", href: "/phase4/browser/plain", "data-shomen-get": "挨拶", id: "greet-link"
+              form(action: "/phase4/browser/greet", method: "post", "data-shomen-post": "挨拶", id: "greet-form") do
+                csrf_field(token)
+                button "Greet", type: "submit"
+              end
+            end
           end
         end
       end
@@ -174,6 +187,80 @@ module BrowserRoutes
     def call(input : Input) : Shomen::Response
       RECEIVED << "POST /phase4/browser/hold #{target || "-"}"
       redirect("/phase4/browser/held")
+    end
+  end
+
+  # A JSON value holding markup with the target's id. The onerror handler
+  # would report to Pwned if the value were inserted as HTML. The attributes
+  # are unquoted because JSON escapes quotes.
+  JSON_MARKUP = %(<div id=slot><img src=x title=/phase4/browser/pwned onerror=fetch(this.title)></div>)
+
+  class JsonGet < Shomen::Route
+    method GET
+    path "/phase4/browser/json"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "GET /phase4/browser/json #{target || "-"}"
+      json({"value" => JSON_MARKUP})
+    end
+  end
+
+  class JsonPost < Shomen::Route
+    method POST
+    path "/phase4/browser/json"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "POST /phase4/browser/json #{target || "-"}"
+      json({"value" => JSON_MARKUP})
+    end
+  end
+
+  class Pwned < Shomen::Route
+    method GET
+    path "/phase4/browser/pwned"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "GET /phase4/browser/pwned #{target || "-"}"
+      render PlainView.new
+    end
+  end
+
+  # With a target it declares more bytes than it sends and closes the
+  # connection, so the body read fails after the headers arrived.
+  class Short < Shomen::Route
+    method GET
+    path "/phase4/browser/short"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "GET /phase4/browser/short #{target || "-"}"
+      return render PlainView.new unless target
+      headers = HTTP::Headers{"Content-Length" => "100000", "Connection" => "close"}
+      Shomen::Response.new(200, "text/html; charset=utf-8", %(<div id="slot"><p>short</p></div>), headers)
+    end
+  end
+
+  class Greet < Shomen::Route
+    method POST
+    path "/phase4/browser/greet"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      RECEIVED << "POST /phase4/browser/greet #{target || "-"}"
+      render PlainView.new
     end
   end
 
