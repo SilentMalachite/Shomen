@@ -186,4 +186,74 @@ describe Shomen::Store do
       remove_database(path)
     end
   end
+
+  it "closes the database when creating the events table times out" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    begin
+      DB.open("sqlite3://#{path}?journal_mode=wal") { |db| db.exec("CREATE TABLE other (x TEXT)") }
+      # SQLite keeps a closed connection's descriptors open while another
+      # connection in the process holds a lock, so count after the blocker.
+      before = Dir.children("/dev/fd").size
+      DB.open("sqlite3://#{path}") do |db|
+        db.using_connection do |blocker|
+          blocker.exec("BEGIN IMMEDIATE")
+          expect_raises(SQLite3::Exception, "database is locked") { Shomen::Store.new("sqlite3://#{path}?busy_timeout=50") }
+          blocker.exec("ROLLBACK")
+        end
+      end
+      Dir.children("/dev/fd").size.should eq(before)
+    ensure
+      remove_database(path)
+    end
+  end
+
+  it "refuses a URL that turns off the prepared statement cache" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    expect_raises(ArgumentError, "prepared_statements_cache") do
+      Shomen::Store.new("sqlite3://#{path}?prepared_statements_cache=false")
+    end
+    File.exists?(path).should be_false
+  end
+
+  it "refuses an event whose time is not UTC and adds no row" do
+    with_store do |store|
+      at = Time.local(2026, 9, 29, 0, 30, 0, location: Time::Location.fixed(9 * 3600))
+      expect_raises(ArgumentError, "UTC") do
+        store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
+      end
+      store.read(after: 0_i64).should be_empty
+    end
+  end
+
+  it "writes none of the events when a later one fails" do
+    with_store do |store, path|
+      DB.open("sqlite3://#{path}") do |db|
+        db.exec(%(CREATE TRIGGER bad BEFORE INSERT ON events WHEN NEW.payload LIKE '%"bad"%' BEGIN SELECT RAISE(ABORT, 'bad'); END))
+      end
+      expect_raises(SQLite3::Exception, "bad") do
+        store.append("s", 0_i64, [SpecEvents::Noted.new("ok"), SpecEvents::Noted.new("bad")] of Shomen::Event)
+      end
+      store.read(after: 0_i64).should be_empty
+      store.append("s", 0_i64, note("after"))
+      texts(store.read(after: 0_i64)).should eq(["after"])
+    end
+  end
+
+  it "waits for an append in progress before it reads or closes" do
+    with_store do |store|
+      lock = store.@lock
+      lock.lock
+      done = Channel(String).new(2)
+      spawn { store.read(after: 0_i64); done.send("read") }
+      spawn { store.close; done.send("close") }
+      Fiber.yield
+      select
+      when finished = done.receive
+        fail "#{finished} did not wait for the lock"
+      else
+      end
+      lock.unlock
+      2.times { done.receive }
+    end
+  end
 end

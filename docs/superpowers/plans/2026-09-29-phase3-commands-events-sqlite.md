@@ -53,6 +53,7 @@
 - `apply` の途中の失敗。プロジェクションの `apply` が 2 件目で例外を投げる。チェックポイントは 1 件目の `id` に留まり、次の `catch_up` は 2 件目からやり直し、1 件目を二度適用しない。Task 4 の spec で固定する。
 - 知らない `type` の行。新しいビルドが書いた行や、消されたイベント型の行を読む。黙って読み飛ばさず、型の名前を含む `ArgumentError` を投げる。Task 3 の spec で固定する。
 - URL の形。`sqlite3://./var/shomen.sqlite3` のように `var/` がまだ無い相対パスは、ディレクトリを作って開く。`sqlite3::memory:`、`sqlite3://:memory:`、`sqlite3://`、`sqlite3:///`、`postgres://…` は `ArgumentError`。開けないファイルは、ファイル名を含む `DB::ConnectionRefused`。Task 3 の spec で固定する。
+- 使用中の `close`。実行中の `append` や `read` がある間、`close` は同じファイルのロックを待つ。UTC でない `at` は `ArgumentError`。`prepared_statements_cache` を切る URL は `ArgumentError`。Task 3 の spec で固定する（PR のレビュー後に追加）。
 - ロック待ちのタイムアウトと、SQLite が自分でロールバックした追記。どちらの後も同じストアで追記と読み取りができ、`close` が例外を投げない。後者は元のエラーを上げ、`ROLLBACK` の失敗で隠さない。Task 3 の spec で固定する（最終レビュー後に追加）。
 
 ## File Map
@@ -144,7 +145,7 @@ Phase 2 acceptance is met. Do not implement past this point (phase 4 and later).
 
 # 決定
 
-`include Shomen::Event` した struct は、本体で `event_type "user_renamed"` と書いて名前を宣言する。引数は空でない文字列リテラルに限る。宣言の無い型と、2 つの型が同じ名前を宣言したプログラムは、コンパイルエラーにする。`Shomen::Event` は `JSON::Serializable` を include させ、`payload` はその JSON にする。読み戻しは `Shomen::Event.decode(type, payload)` が、`Shomen::Event` を include した型をマクロで列挙して行う。知らない名前は、名前を含む `ArgumentError` にする。`at` は `payload` と `at` 列のどちらも秒までの UTC の RFC 3339 にし、秒未満は保存しない。
+`include Shomen::Event` した struct は、本体で `event_type "user_renamed"` と書いて名前を宣言する。引数は空でない文字列リテラルに限る。宣言の無い型と、2 つの型が同じ名前を宣言したプログラムは、コンパイルエラーにする。`Shomen::Event` は `JSON::Serializable` を include させ、`payload` はその JSON にする。読み戻しは `Shomen::Event.decode(type, payload)` が、`Shomen::Event` を include した型をマクロで列挙して行う。知らない名前は、名前を含む `ArgumentError` にする。`at` は `payload` と `at` 列のどちらも秒までの UTC の RFC 3339 にし、秒未満は保存しない。`at` が UTC でないイベントは、`Shomen::Store#append` が何も書かずに `ArgumentError` にする。
 
 # 理由
 
@@ -157,6 +158,7 @@ Phase 2 acceptance is met. Do not implement past this point (phase 4 and later).
 - Crystal の型名をそのまま使う（改名で古い行が読めなくなる）
 - 知らない名前の行を読み飛ばす
 - 秒未満まで保存する変換器を入れる
+- UTC でない `at` を追記のときに UTC へ直す（`payload` はイベント型の JSON なので、ストアが中の時刻を書き換えることになる）
 ```
 
 - [ ] **Step 4: D2 を書く**
@@ -195,7 +197,7 @@ union を返せば、呼び出し側は失敗の分岐をコンパイラに強�
 
 # 決定
 
-- `Shomen::Store.new(url : String)`。フェーズ 3 はスキーム `sqlite3` だけを受け付ける。URL として読めないもの、ほかのスキーム、ファイル名が空、`:memory:`、ディレクトリは `ArgumentError`。ファイルを開けなければ、ファイル名を含む `DB::ConnectionRefused` にする。`events` 表を作れなければ、開いた DB を閉じてから例外を上げる
+- `Shomen::Store.new(url : String)`。フェーズ 3 はスキーム `sqlite3` だけを受け付ける。URL として読めないもの、ほかのスキーム、ファイル名が空、`:memory:`、ディレクトリは `ArgumentError`。ファイルを開けなければ、ファイル名を含む `DB::ConnectionRefused` にする。`events` 表を作れなければ、失敗した文をリセットし、開いた DB を閉じてから例外を上げる。`prepared_statements_cache` を `true` 以外にする URL は `ArgumentError`（文が解放されず、失敗した文をリセットできない）
 - URL に無ければ `journal_mode=wal` と `busy_timeout=5000` を足す。URL にあればそれを使う
 - ファイルの親ディレクトリが無ければ作る。`events` 表を `CREATE TABLE IF NOT EXISTS` で作る。マイグレーションの仕組みは作らない
 - `append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil`。空の配列は何もしない。空のストリーム名と負の版は `ArgumentError`。版の確認は `BEGIN IMMEDIATE` の中で `SELECT COALESCE(MAX(version), 0)` で行い、違えば `ROLLBACK` して `Shomen::Conflict` を投げる。`payload` と `at` の文字列はロックを取る前に作る
@@ -203,7 +205,7 @@ union を返せば、呼び出し側は失敗の分岐をコンパイラに強�
 - `read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)` は `id` が `after` より大きい行を `id` 順に返す
 - 失敗した文は `ROLLBACK` の前後にリセットする。SQLite がすでにロールバックしていて `ROLLBACK` が失敗しても、元の例外を上げる
 - `close : Nil`
-- プロセス内のロックは、`File.realpath` で求めた実パスごとに 1 つの `Mutex` にする
+- プロセス内のロックは、`File.realpath` で求めた実パスごとに 1 つの `Mutex` にする。`read` と `close` も同じロックを取る。`close` が、実行中の `append` や `read` の文を解放しないため
 
 # 理由
 
@@ -890,6 +892,76 @@ describe Shomen::Store do
       remove_database(path)
     end
   end
+
+  it "closes the database when creating the events table times out" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    begin
+      DB.open("sqlite3://#{path}?journal_mode=wal") { |db| db.exec("CREATE TABLE other (x TEXT)") }
+      # SQLite keeps a closed connection's descriptors open while another
+      # connection in the process holds a lock, so count after the blocker.
+      before = Dir.children("/dev/fd").size
+      DB.open("sqlite3://#{path}") do |db|
+        db.using_connection do |blocker|
+          blocker.exec("BEGIN IMMEDIATE")
+          expect_raises(SQLite3::Exception, "database is locked") { Shomen::Store.new("sqlite3://#{path}?busy_timeout=50") }
+          blocker.exec("ROLLBACK")
+        end
+      end
+      Dir.children("/dev/fd").size.should eq(before)
+    ensure
+      remove_database(path)
+    end
+  end
+
+  it "refuses a URL that turns off the prepared statement cache" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    expect_raises(ArgumentError, "prepared_statements_cache") do
+      Shomen::Store.new("sqlite3://#{path}?prepared_statements_cache=false")
+    end
+    File.exists?(path).should be_false
+  end
+
+  it "refuses an event whose time is not UTC and adds no row" do
+    with_store do |store|
+      at = Time.local(2026, 9, 29, 0, 30, 0, location: Time::Location.fixed(9 * 3600))
+      expect_raises(ArgumentError, "UTC") do
+        store.append("s", 0_i64, [SpecEvents::Noted.new("x", at)] of Shomen::Event)
+      end
+      store.read(after: 0_i64).should be_empty
+    end
+  end
+
+  it "writes none of the events when a later one fails" do
+    with_store do |store, path|
+      DB.open("sqlite3://#{path}") do |db|
+        db.exec(%(CREATE TRIGGER bad BEFORE INSERT ON events WHEN NEW.payload LIKE '%"bad"%' BEGIN SELECT RAISE(ABORT, 'bad'); END))
+      end
+      expect_raises(SQLite3::Exception, "bad") do
+        store.append("s", 0_i64, [SpecEvents::Noted.new("ok"), SpecEvents::Noted.new("bad")] of Shomen::Event)
+      end
+      store.read(after: 0_i64).should be_empty
+      store.append("s", 0_i64, note("after"))
+      texts(store.read(after: 0_i64)).should eq(["after"])
+    end
+  end
+
+  it "waits for an append in progress before it reads or closes" do
+    with_store do |store|
+      lock = store.@lock
+      lock.lock
+      done = Channel(String).new(2)
+      spawn { store.read(after: 0_i64); done.send("read") }
+      spawn { store.close; done.send("close") }
+      Fiber.yield
+      select
+      when finished = done.receive
+        fail "#{finished} did not wait for the lock"
+      else
+      end
+      lock.unlock
+      2.times { done.receive }
+    end
+  end
 end
 ```
 
@@ -935,9 +1007,9 @@ require "./event"
 require "./recorded"
 require "./conflict"
 
-# Append-only event log in one SQLite file. Appends in a process take one
-# fiber-aware lock per file before BEGIN IMMEDIATE; other processes wait
-# through the busy timeout.
+# Append-only event log in one SQLite file. Appends, reads, and close in a
+# process take one fiber-aware lock per file, and appends then BEGIN
+# IMMEDIATE; other processes wait through the busy timeout.
 class Shomen::Store
   BUSY_TIMEOUT_MS = 5000
 
@@ -975,6 +1047,11 @@ class Shomen::Store
     end
     Dir.mkdir_p(File.dirname(filename))
     params = uri.query_params
+    # Without the cache every statement is a new one that nothing finalizes,
+    # so close fails and a failed statement cannot be reset.
+    if params.fetch("prepared_statements_cache", "true") != "true"
+      raise ArgumentError.new("store URL must not set prepared_statements_cache")
+    end
     params["journal_mode"] = "wal" unless params.has_key?("journal_mode")
     params["busy_timeout"] = BUSY_TIMEOUT_MS.to_s unless params.has_key?("busy_timeout")
     uri.query_params = params
@@ -984,7 +1061,12 @@ class Shomen::Store
       raise DB::ConnectionRefused.new("cannot open #{filename}", cause: ex)
     end
     begin
-      @db.exec(SCHEMA)
+      @db.using_connection do |connection|
+        connection.exec(SCHEMA)
+      rescue ex
+        reset(connection, SCHEMA)
+        raise ex
+      end
     rescue ex
       @db.close
       raise ex
@@ -997,7 +1079,10 @@ class Shomen::Store
     raise ArgumentError.new("stream must not be empty") if stream.empty?
     raise ArgumentError.new("expected_version must not be negative") if expected_version < 0
     return if events.empty?
-    rows = events.map { |event| {event.event_type, event.to_json, event.at.to_utc.to_rfc3339} }
+    events.each do |event|
+      raise ArgumentError.new("#{event.event_type} at must be UTC, got #{event.at}") unless event.at.utc?
+    end
+    rows = events.map { |event| {event.event_type, event.to_json, event.at.to_rfc3339} }
     @lock.synchronize do
       @db.using_connection do |connection|
         begin
@@ -1045,19 +1130,23 @@ class Shomen::Store
   end
 
   def read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)
-    rows = @db.query_all(
-      "SELECT id, stream, version, type, payload FROM events WHERE id > ? ORDER BY id LIMIT ?",
-      after, limit,
-      as: {Int64, String, Int64, String, String},
-    )
+    rows = @lock.synchronize do
+      @db.query_all(
+        "SELECT id, stream, version, type, payload FROM events WHERE id > ? ORDER BY id LIMIT ?",
+        after, limit,
+        as: {Int64, String, Int64, String, String},
+      )
+    end
     rows.map do |row|
       id, stream, version, type, payload = row
       Shomen::Recorded.new(id, stream, version, Shomen::Event.decode(type, payload))
     end
   end
 
+  # Waits for an append or read in progress, which would otherwise use a
+  # statement that close has finalized.
   def close : Nil
-    @db.close
+    @lock.synchronize { @db.close }
   end
 end
 ```
@@ -1073,7 +1162,7 @@ require "./shomen/store"
 - [ ] **Step 6: 通ることを確かめる**
 
 Run: `crystal spec spec/shomen/store_spec.cr`
-Expected: PASS（16 examples, 0 failures。うち 4 つは最終レビュー後に追加）。`it "stays usable and closes cleanly after a conflict"` は `with_store` の `ensure` で 2 回目の `close` を呼ぶが、crystal-db の `Disposable#close` は閉じ済みなら何もしない。
+Expected: PASS（21 examples, 0 failures。うち 4 つは最終レビュー後、5 つは PR のレビュー後に追加）。`it "stays usable and closes cleanly after a conflict"` は `with_store` の `ensure` で 2 回目の `close` を呼ぶが、crystal-db の `Disposable#close` は閉じ済みなら何もしない。
 
 - [ ] **Step 7: 全体と例を確かめる**
 

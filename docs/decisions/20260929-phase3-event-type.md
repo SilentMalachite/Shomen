@@ -4,7 +4,7 @@
 
 # 決定
 
-`include Shomen::Event` した struct は、本体で `event_type "user_renamed"` と書いて名前を宣言する。引数は空でない文字列リテラルに限る。宣言の無い型と、2 つの型が同じ名前を宣言したプログラムは、コンパイルエラーにする。`Shomen::Event` は `JSON::Serializable` を include させ、`payload` はその JSON にする。読み戻しは `Shomen::Event.decode(type, payload)` が、`Shomen::Event` を include した型をマクロで列挙して行う。知らない名前は、名前を含む `ArgumentError` にする。`at` は `payload` と `at` 列のどちらも秒までの UTC の RFC 3339 にし、秒未満は保存しない。
+`include Shomen::Event` した struct は、本体で `event_type "user_renamed"` と書いて名前を宣言する。引数は空でない文字列リテラルに限る。宣言の無い型と、2 つの型が同じ名前を宣言したプログラムは、コンパイルエラーにする。`Shomen::Event` は `JSON::Serializable` を include させ、`payload` はその JSON にする。読み戻しは `Shomen::Event.decode(type, payload)` が、`Shomen::Event` を include した型をマクロで列挙して行う。知らない名前は、名前を含む `ArgumentError` にする。`at` は `payload` と `at` 列のどちらも秒までの UTC の RFC 3339 にし、秒未満は保存しない。`at` が UTC でないイベントは、`Shomen::Store#append` が何も書かずに `ArgumentError` にする。
 
 # 理由
 
@@ -17,3 +17,4 @@
 - Crystal の型名をそのまま使う（改名で古い行が読めなくなる）
 - 知らない名前の行を読み飛ばす
 - 秒未満まで保存する変換器を入れる
+- UTC でない `at` を追記のときに UTC へ直す（`payload` はイベント型の JSON なので、ストアが中の時刻を書き換えることになる）

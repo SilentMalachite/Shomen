@@ -5,9 +5,9 @@ require "./event"
 require "./recorded"
 require "./conflict"
 
-# Append-only event log in one SQLite file. Appends in a process take one
-# fiber-aware lock per file before BEGIN IMMEDIATE; other processes wait
-# through the busy timeout.
+# Append-only event log in one SQLite file. Appends, reads, and close in a
+# process take one fiber-aware lock per file, and appends then BEGIN
+# IMMEDIATE; other processes wait through the busy timeout.
 class Shomen::Store
   BUSY_TIMEOUT_MS = 5000
 
@@ -45,6 +45,11 @@ class Shomen::Store
     end
     Dir.mkdir_p(File.dirname(filename))
     params = uri.query_params
+    # Without the cache every statement is a new one that nothing finalizes,
+    # so close fails and a failed statement cannot be reset.
+    if params.fetch("prepared_statements_cache", "true") != "true"
+      raise ArgumentError.new("store URL must not set prepared_statements_cache")
+    end
     params["journal_mode"] = "wal" unless params.has_key?("journal_mode")
     params["busy_timeout"] = BUSY_TIMEOUT_MS.to_s unless params.has_key?("busy_timeout")
     uri.query_params = params
@@ -54,7 +59,12 @@ class Shomen::Store
       raise DB::ConnectionRefused.new("cannot open #{filename}", cause: ex)
     end
     begin
-      @db.exec(SCHEMA)
+      @db.using_connection do |connection|
+        connection.exec(SCHEMA)
+      rescue ex
+        reset(connection, SCHEMA)
+        raise ex
+      end
     rescue ex
       @db.close
       raise ex
@@ -67,7 +77,10 @@ class Shomen::Store
     raise ArgumentError.new("stream must not be empty") if stream.empty?
     raise ArgumentError.new("expected_version must not be negative") if expected_version < 0
     return if events.empty?
-    rows = events.map { |event| {event.event_type, event.to_json, event.at.to_utc.to_rfc3339} }
+    events.each do |event|
+      raise ArgumentError.new("#{event.event_type} at must be UTC, got #{event.at}") unless event.at.utc?
+    end
+    rows = events.map { |event| {event.event_type, event.to_json, event.at.to_rfc3339} }
     @lock.synchronize do
       @db.using_connection do |connection|
         begin
@@ -115,18 +128,22 @@ class Shomen::Store
   end
 
   def read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)
-    rows = @db.query_all(
-      "SELECT id, stream, version, type, payload FROM events WHERE id > ? ORDER BY id LIMIT ?",
-      after, limit,
-      as: {Int64, String, Int64, String, String},
-    )
+    rows = @lock.synchronize do
+      @db.query_all(
+        "SELECT id, stream, version, type, payload FROM events WHERE id > ? ORDER BY id LIMIT ?",
+        after, limit,
+        as: {Int64, String, Int64, String, String},
+      )
+    end
     rows.map do |row|
       id, stream, version, type, payload = row
       Shomen::Recorded.new(id, stream, version, Shomen::Event.decode(type, payload))
     end
   end
 
+  # Waits for an append or read in progress, which would otherwise use a
+  # statement that close has finalized.
   def close : Nil
-    @db.close
+    @lock.synchronize { @db.close }
   end
 end
