@@ -18,6 +18,19 @@ describe Shomen::PostgresAdapter do
     expect_raises(ArgumentError, "store URL must name a database") { Shomen::Store.new("postgresql://localhost/") }
   end
 
+  it "keys a URL by the port and host the driver connects to" do
+    with_env({"PGPORT" => nil, "PGHOST" => nil}) do
+      Shomen::PostgresAdapter.key(URI.parse("postgres://localhost/app")).should eq("postgres://localhost:5432/app")
+      Shomen::PostgresAdapter.key(URI.parse("postgres://localhost/app?port=5433")).should eq("postgres://localhost:5433/app")
+    end
+    with_env({"PGPORT" => "5433", "PGHOST" => "db.example"}) do
+      key = Shomen::PostgresAdapter.key(URI.parse("postgres://db.example:5433/app"))
+      key.should eq("postgres://db.example:5433/app")
+      Shomen::PostgresAdapter.key(URI.parse("postgres://db.example/app")).should eq(key)
+      Shomen::PostgresAdapter.key(URI.parse("postgres:///app")).should eq(key)
+    end
+  end
+
   postgres_it "creates the events table with BIGINT integers and an identity cached one at a time" do |_, url|
     DB.open(url) do |db|
       columns = db.query_all(
@@ -51,6 +64,7 @@ describe Shomen::PostgresAdapter do
     when 5432 then uri.port = nil
     else           pending!("SHOMEN_SPEC_POSTGRES names port #{uri.port}")
     end
+    pending!("PGPORT is #{ENV["PGPORT"]}") if ENV.fetch("PGPORT", "5432") != "5432"
     other = Shomen::Store.new(uri.to_s)
     begin
       key = store.@adapter.as(Shomen::PostgresAdapter).key

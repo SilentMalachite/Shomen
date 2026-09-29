@@ -12,8 +12,6 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
   # "shomen" in ASCII.
   LOCK_KEY  = 0x73686f6d656e_i64
   POOL_SIZE = "10"
-  # What the driver connects to when the URL names no port.
-  DEFAULT_PORT = 5432
 
   SCHEMA = <<-SQL
     CREATE TABLE IF NOT EXISTS events (
@@ -38,7 +36,7 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
   def initialize(uri : URI)
     database = uri.path.lchop('/')
     raise ArgumentError.new("store URL must name a database") if database.empty?
-    @key = "postgres://#{uri.host}:#{uri.port || DEFAULT_PORT}/#{database}"
+    @key = self.class.key(uri)
     params = uri.query_params
     params["max_pool_size"] = POOL_SIZE unless params.has_key?("max_pool_size")
     params["max_idle_pool_size"] = params["max_pool_size"] unless params.has_key?("max_idle_pool_size")
@@ -50,6 +48,14 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
       @db.close
       raise ex
     end
+  end
+
+  # The server and database the driver connects to, as it resolves them
+  # from the URL, its query and PGHOST / PGPORT, so every URL for one
+  # database shares one append signal.
+  def self.key(uri : URI) : String
+    info = PQ::ConnInfo.new(uri)
+    "postgres://#{info.host}:#{info.port}/#{info.database}"
   end
 
   def append(stream : String, expected_version : Int64, rows : Array(Row)) : Int64

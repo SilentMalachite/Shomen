@@ -6,7 +6,7 @@
 
 `Shomen::Store` の公開 API（`new(url)`、`append`、`read`、`last_appended`、`wait_for_append`、`close`）は変えない。`Shomen::Store.new(url)` が URL のスキームでアダプタを選ぶ。`sqlite3` なら `Shomen::SQLiteAdapter`、`postgres` か `postgresql` なら `Shomen::PostgresAdapter`、それ以外は `ArgumentError` にする。
 
-アダプタは抽象クラス `Shomen::StoreAdapter` を継ぎ、`key`、`append(stream, expected_version, rows) : Int64`（最後の `id` を返す）、`read(after, limit)`、`close` を持つ。版が合わないときに `Shomen::Conflict` を投げる処理は、基底クラスに 1 つだけ置く。引数の検査（空のストリーム名、負の版、UTC でない時刻）、JSON への変換と復元、`Shomen::AppendSignal` への知らせは `Shomen::Store` に残す。`AppendSignal` はアダプタの `key` ごとにプロセスで 1 つにする。SQLite の `key` は `sqlite3://` に実パスを続けたもの、Postgres の `key` は `postgres://` に URL のホスト、ポート、DB 名を続けたものである。
+アダプタは抽象クラス `Shomen::StoreAdapter` を継ぎ、`key`、`append(stream, expected_version, rows) : Int64`（最後の `id` を返す）、`read(after, limit)`、`close` を持つ。版が合わないときに `Shomen::Conflict` を投げる処理は、基底クラスに 1 つだけ置く。引数の検査（空のストリーム名、負の版、UTC でない時刻）、JSON への変換と復元、`Shomen::AppendSignal` への知らせは `Shomen::Store` に残す。`AppendSignal` はアダプタの `key` ごとにプロセスで 1 つにする。SQLite の `key` は `sqlite3://` に実パスを続けたもの、Postgres の `key` は `postgres://` に、ドライバが接続先として URL、そのクエリ、`PGHOST` / `PGPORT` から解決するホスト、ポート、DB 名（`PQ::ConnInfo` の値）を続けたものである。同じ DB を指す URL は、ポートの書き方が違っても 1 つの `AppendSignal` を共有する。
 
 SQLite のアダプタに `max_pool_size` の上限は設けない。仕様 10 のプールの上限は Postgres の接続の話で、SQLite の書き込みはファイルごとの書き込みロックですでに直列になっている。
 
