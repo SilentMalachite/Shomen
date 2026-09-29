@@ -4,10 +4,12 @@ require "sqlite3"
 require "./event"
 require "./recorded"
 require "./conflict"
+require "./append_signal"
 
 # Append-only event log in one SQLite file. Appends, reads, and close in a
 # process take one fiber-aware lock per file, and appends then BEGIN
-# IMMEDIATE; other processes wait through the busy timeout.
+# IMMEDIATE; other processes wait through the busy timeout. After a commit
+# an append wakes what waits for it in this process.
 class Shomen::Store
   BUSY_TIMEOUT_MS = 5000
 
@@ -27,10 +29,12 @@ class Shomen::Store
   INSERT         = "INSERT INTO events (stream, version, type, payload, at) VALUES (?, ?, ?, ?, ?)"
 
   @@locks = {} of String => Mutex
+  @@signals = {} of String => Shomen::AppendSignal
   @@locks_lock = Mutex.new
 
   @db : DB::Database
   @lock : Mutex
+  @signal : Shomen::AppendSignal
 
   def initialize(url : String)
     uri = begin
@@ -70,7 +74,9 @@ class Shomen::Store
       raise ex
     end
     real = File.realpath(filename)
-    @lock = @@locks_lock.synchronize { @@locks[real] ||= Mutex.new }
+    @lock, @signal = @@locks_lock.synchronize do
+      {@@locks[real] ||= Mutex.new, @@signals[real] ||= Shomen::AppendSignal.new}
+    end
   end
 
   def append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil
@@ -81,7 +87,7 @@ class Shomen::Store
       raise ArgumentError.new("#{event.event_type} at must be UTC, got #{event.at}") unless event.at.utc?
     end
     rows = events.map { |event| {event.event_type, event.to_json, event.at.to_rfc3339} }
-    @lock.synchronize do
+    last_id = @lock.synchronize do
       @db.using_connection do |connection|
         begin
           connection.exec("BEGIN IMMEDIATE")
@@ -90,14 +96,27 @@ class Shomen::Store
           raise ex
         end
         begin
-          insert(connection, stream, expected_version, rows)
+          id = insert(connection, stream, expected_version, rows)
           connection.exec("COMMIT")
+          id
         rescue ex
           rollback(connection)
           raise ex
         end
       end
     end
+    @signal.announce(last_id)
+  end
+
+  # The highest id this process appended to the file, 0 before the first.
+  def last_appended : Int64
+    @signal.last
+  end
+
+  # Waits until this process appends an event with an id above after.
+  # False when within passes first.
+  def wait_for_append(after : Int64, within : Time::Span) : Bool
+    @signal.wait(after, within)
   end
 
   # SQLite may already have rolled back (a full disk, a trigger), so a
@@ -116,15 +135,17 @@ class Shomen::Store
     LibSQLite3.reset(connection.fetch_or_build_prepared_statement(sql).as(SQLite3::Statement))
   end
 
-  private def insert(connection : DB::Connection, stream : String, expected_version : Int64, rows : Array({String, String, String})) : Nil
+  private def insert(connection : DB::Connection, stream : String, expected_version : Int64, rows : Array({String, String, String})) : Int64
     current = connection.scalar(SELECT_VERSION, stream).as(Int64)
     unless current == expected_version
       raise Shomen::Conflict.new("stream #{stream} is at version #{current}, expected #{expected_version}")
     end
+    last_id = 0_i64
     rows.each_with_index(1) do |row, offset|
       type, payload, at = row
-      connection.exec(INSERT, stream, expected_version + offset, type, payload, at)
+      last_id = connection.exec(INSERT, stream, expected_version + offset, type, payload, at).last_insert_id
     end
+    last_id
   end
 
   def read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)

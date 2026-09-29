@@ -2,16 +2,33 @@
 // dependencies. A link with data-shomen-get or a post form with
 // data-shomen-post names the id of an element, and the response replaces
 // that element. Without this file the same link and form load a page.
+// An element with data-shomen-sse holds an event stream whose fragments
+// replace elements inside it, and an element with data-shomen-island runs
+// the island module of that name.
 (() => {
   "use strict";
 
   const TARGET_HEADER = "Shomen-Target";
+  const ISLAND_PATH = "/islands/";
+  const ISLAND_NAME = /^[a-z][a-z0-9-]*$/;
 
   // Targets left busy for a navigation. A page restored from the
   // back-forward cache is not navigating any more.
   const handedOff = new Set();
 
+  // The event source of each data-shomen-sse element in the page.
+  const sources = new Map();
+
+  // Islands whose module has run.
+  const mounted = new WeakSet();
+
   const sameOrigin = (url) => url.origin === location.origin;
+
+  // root when it matches selector, then the elements inside it that do.
+  const within = (root, selector) => [
+    ...(root.matches(selector) ? [root] : []),
+    ...root.querySelectorAll(selector),
+  ];
 
   // Only an HTML response is parsed. Other types, such as JSON, may carry
   // markup from user input.
@@ -20,12 +37,62 @@
     return type.split(";")[0].trim().toLowerCase() === "text/html";
   };
 
+  // Each message is a fragment. It replaces the element with the same id
+  // inside the holder; a fragment for any other element is dropped.
+  const listen = (root) => {
+    within(root, "[data-shomen-sse]").forEach((holder) => {
+      if (sources.has(holder)) return;
+      const url = new URL(holder.getAttribute("data-shomen-sse"), document.baseURI);
+      if (!sameOrigin(url)) return;
+      const source = new EventSource(url);
+      sources.set(holder, source);
+      source.addEventListener("message", (event) => {
+        const template = document.createElement("template");
+        template.innerHTML = event.data;
+        const next = template.content.firstElementChild;
+        const current = next && next.id ? document.getElementById(next.id) : null;
+        if (current && current !== holder && holder.contains(current)) replace(current, next);
+      });
+    });
+  };
+
+  // Runs the module of each island once, with the island. The name must be
+  // a plain name, so it cannot lead the path anywhere else.
+  const mount = (root) => {
+    within(root, "[data-shomen-island]").forEach((island) => {
+      const name = island.getAttribute("data-shomen-island");
+      if (mounted.has(island) || !ISLAND_NAME.test(name)) return;
+      mounted.add(island);
+      import(ISLAND_PATH + name + ".js").then((module) => module.default(island));
+    });
+  };
+
+  // Closes the stream of each holder no longer in the page, then starts
+  // the streams and islands that root brings.
+  const settle = (root) => {
+    sources.forEach((source, holder) => {
+      if (holder.isConnected) return;
+      source.close();
+      sources.delete(holder);
+    });
+    listen(root);
+    mount(root);
+  };
+
+  // Puts next in place of current. When the focus was inside current, it
+  // goes to the element with the same id.
+  const replace = (current, next) => {
+    const active = document.activeElement;
+    const focused = active && current.contains(active) ? active.id : "";
+    current.replaceWith(next);
+    if (focused) document.getElementById(focused)?.focus();
+    settle(next);
+  };
+
   // An element of the same id in the response replaces the target. A
   // redirect loads its page. Otherwise a GET loads the URL, and a POST,
   // which must not be sent twice, shows the response as the page.
   const load = async (target, url, init) => {
-    const active = document.activeElement;
-    const focused = active && target.contains(active) ? active.id : "";
     target.setAttribute("aria-busy", "true");
     // The old page stays live until a navigation commits, so it keeps the
     // target busy and a second submit still sends nothing.
@@ -54,14 +121,14 @@
       template.innerHTML = html;
       const next = template.content.getElementById(target.id);
       if (next) {
-        target.replaceWith(next);
-        if (focused) document.getElementById(focused)?.focus();
+        replace(target, next);
       } else if (init.method === "GET") {
         navigating = true;
         location.assign(url);
       } else {
         const page = new DOMParser().parseFromString(html, "text/html");
         document.documentElement.replaceWith(page.documentElement);
+        settle(document.documentElement);
       }
     } finally {
       if (navigating) handedOff.add(target);
@@ -117,4 +184,6 @@
     const body = new URLSearchParams(new FormData(form, submitter));
     load(target, url, { method: "POST", body });
   });
+
+  settle(document.documentElement);
 })();

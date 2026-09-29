@@ -143,6 +143,35 @@ class Browser
     result["result"]["value"]? || JSON::Any.new(nil)
   end
 
+  # Declares waitFor(check): it resolves with check()'s first value other
+  # than undefined, looking now and again after every change to the page.
+  WAIT_FOR = <<-JS
+    const waitFor = (check) => new Promise((resolve) => {
+      const first = check();
+      if (first !== undefined) return resolve(first);
+      const observer = new MutationObserver(() => {
+        const value = check();
+        if (value !== undefined) {
+          observer.disconnect();
+          resolve(value);
+        }
+      });
+      observer.observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
+    });
+    JS
+
+  # Runs body as the inside of an async function, with waitFor declared,
+  # and returns its value.
+  def run(body : String) : JSON::Any
+    evaluate("(async () => {\n#{WAIT_FOR}\n#{body}\n})()")
+  end
+
+  # Runs source in each document the page loads from now on, before the
+  # document's own scripts.
+  def before_load(source : String) : Nil
+    command("Page.addScriptToEvaluateOnNewDocument", {source: source})
+  end
+
   # Forgets buffered events, so the next wait_for sees only later ones.
   def clear_events : Nil
     @events.clear

@@ -6,13 +6,13 @@ end
 
 describe "phase 3 module boundaries" do
   it "keeps HTML out of the store and what it requires" do
-    %w(store event recorded conflict).each do |name|
+    %w(store event recorded conflict append_signal).each do |name|
       source(name).should_not match(/Shomen::(HTML|View|ErrorView)|require "\.\/(html|view|a11y|error_view)"/)
     end
   end
 
   it "keeps SQLite out of commands, events, and projections" do
-    %w(command event rejected recorded projection).each do |name|
+    %w(command event rejected recorded projection append_signal sse).each do |name|
       source(name).should_not match(/sqlite/i)
     end
   end

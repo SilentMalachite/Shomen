@@ -1,5 +1,6 @@
 require "shomen"
 require "./users"
+require "./counter"
 
 module Hello
   class ShowView < Shomen::View
