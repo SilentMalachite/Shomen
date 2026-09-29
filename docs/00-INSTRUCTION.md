@@ -165,7 +165,7 @@ DSL は HTML 要素に対応するメソッドを提供する。最低限:
 - `Referrer-Policy: no-referrer`
 - `X-Frame-Options: DENY`
 
-CSP の厳密化は後のフェーズ。フェーズ 1 では付けてもよいが必須ではない。
+フェーズ 6 からは `Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'` も付ける。ルートの応答がすでに `Content-Security-Policy` を持っていれば、そちらを残す（`docs/decisions/20260929-phase6-csp.md`）。
 
 ### 5. サーバ
 
@@ -174,7 +174,7 @@ CSP の厳密化は後のフェーズ。フェーズ 1 では付けてもよい�
 - 既定 bind: `127.0.0.1:3000`
 - ルート照合 → Input 構築 → `call` → Response 書き出し
 - 未照合は 404 の HTML 文書（空の JSON ではない）
-- 未処理例外は 500 の HTML 文書。開発時はメッセージを出してよい。本番相当フラグでは出さない
+- 未処理例外は 500 の HTML 文書。開発時はメッセージを出してよい。`SHOMEN_ENV=production` では文書に出さない。例外は環境によらずログに書く（フェーズ 6、`docs/decisions/20260929-phase6-production.md`）
 - 1 ホスト上の同じプロセス群は `reuse_port: true` でポートを共有する（フェーズ 6、`docs/decisions/20260929-scale-reuse-port.md`）
 - SIGTERM または SIGINT を受けたら、新しい接続を受けるのをやめ、待機中のキープアライブ接続を閉じ、処理中の要求を上限時間内に `Connection: close` 付きで終えてから終了する（フェーズ 6、`docs/decisions/20260929-scale-graceful-shutdown.md`）
 
