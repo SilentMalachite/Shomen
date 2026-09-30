@@ -19,6 +19,43 @@ def assert_security_headers(response)
   response.headers["X-Content-Type-Options"].should eq("nosniff")
   response.headers["Referrer-Policy"].should eq("no-referrer")
   response.headers["X-Frame-Options"].should eq("DENY")
+  response.headers["Content-Security-Policy"].should eq(
+    "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+  )
+end
+
+# Stands in for a client socket, which HTTP::Server leaves buffered
+# (sync = false): bytes reach the wire only on a flush or a large write.
+private class BufferedWire < IO
+  include IO::Buffered
+
+  getter wire = IO::Memory.new
+
+  private def unbuffered_read(slice : Bytes) : Int32
+    raise "nothing to read from BufferedWire"
+  end
+
+  private def unbuffered_write(slice : Bytes) : Nil
+    @wire.write(slice)
+  end
+
+  private def unbuffered_flush : Nil
+  end
+
+  private def unbuffered_close : Nil
+  end
+
+  private def unbuffered_rewind : Nil
+  end
+end
+
+# What reached the wire when call returned. HTTP::Server closes and flushes
+# the response only after that, when the request no longer counts as busy.
+private def call_over_wire(method : String, path : String) : String
+  io = BufferedWire.new
+  response = HTTP::Server::Response.new(io)
+  Shomen::Server.new.call(HTTP::Server::Context.new(HTTP::Request.new(method, path), response))
+  io.wire.to_s
 end
 
 describe Shomen::Server do
@@ -63,6 +100,14 @@ describe Shomen::Server do
     assert_security_headers(response)
   end
 
+  it "logs an unhandled exception outside production too" do
+    Log.capture("shomen") do |logs|
+      call_server("GET", "/phase1/boom").status_code.should eq(500)
+      logs.check(:error, "unhandled exception")
+      logs.entry.exception.try(&.message).should eq("boom <script>")
+    end
+  end
+
   it "keeps a redirect location and adds security headers" do
     response = call_server("GET", "/phase1/redirect")
     response.status_code.should eq(303)
@@ -97,5 +142,32 @@ describe Shomen::Server do
     cookies[0, 2].should eq(["a=1", "b=2"])
     cookies[2].should start_with("shomen_session=")
     assert_security_headers(response)
+  end
+
+  it "keeps a Content-Security-Policy the route set" do
+    response = call_server("GET", "/phase6/csp/own")
+    response.headers.get("Content-Security-Policy").should eq([CSPRoutes::Own::POLICY])
+    response.headers["X-Frame-Options"].should eq("DENY")
+  end
+
+  it "answers with Connection: close once it drains" do
+    server = Shomen::Server.new
+    call_with(server, "GET", "/phase1/home").headers["Connection"]?.should be_nil
+    server.connections.drain
+    call_with(server, "GET", "/phase1/home").headers["Connection"].should eq("close")
+  end
+
+  it "puts the whole response on the wire before the request stops being busy" do
+    response = HTTP::Client::Response.from_io(IO::Memory.new(call_over_wire("GET", "/phase1/home")))
+    response.status_code.should eq(200)
+    response.body.bytesize.should eq(response.headers["Content-Length"].to_i)
+    response.body.should contain("<h1>Hello</h1>")
+  end
+
+  it "puts the headers of a HEAD response on the wire before the request stops being busy" do
+    raw = call_over_wire("HEAD", "/phase1/head")
+    raw.should start_with("HTTP/1.1 200 OK\r\n")
+    raw.should end_with("\r\n\r\n")
+    raw.should contain("Content-Length: ")
   end
 end

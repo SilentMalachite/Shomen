@@ -1,19 +1,23 @@
 # Shomen
 
+[![CI](https://github.com/SilentMalachite/Shomen/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/SilentMalachite/Shomen/actions/workflows/ci.yml)
+[![Crystal](https://img.shields.io/badge/Crystal-%3E%3D%201.20-000000?logo=crystal&logoColor=white)](https://crystal-lang.org/)
+
 [English](README.md) | [日本語](README.ja.md)
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 to 5 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only SQLite event store, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, and islands. Later phases are specified and not implemented. There is no release tag yet.
+Version 0.0.0. Phases 1 to 6 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown). Phase 7 is specified and not implemented. There is no release tag yet.
 
 ## Requirements
 
 - Crystal 1.20 or newer
 - shards
 - The SQLite 3 library (`libsqlite3`)
+- Postgres, only for an application that uses it, and to run the Postgres specs
 - Google Chrome or Chromium, only to run the browser specs (`shomen.js` and the counter of `examples/hello`). Without it they are pending. `SHOMEN_CHROME` names the binary
 
-The framework shard depends on `sqlite3` and `db` from crystal-lang.
+The framework shard depends on `sqlite3`, `pg`, and `db` from crystal-lang and will/crystal-pg. `pg` is written in Crystal and needs no C library.
 
 ## Run the example
 
@@ -73,9 +77,9 @@ Shomen::Server.start
 
 `Hello::Show.path` returns `"/"`. Text is escaped. `html` requires a `lang` literal such as `"en"`, and the document needs exactly one `title`. `button` requires `type: "submit" | "button" | "reset"`. `img` requires an `alt` literal, and `alt: ""` is allowed.
 
-The server listens on `127.0.0.1:3000`. A match returns 200 HTML. A bad path parameter returns 400. An unknown path, or `Shomen::NotFound`, returns 404 HTML. An unhandled exception returns 500 HTML with the message escaped. Every response sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `X-Frame-Options: DENY`.
+The server listens on `127.0.0.1:3000`. A match returns 200 HTML. A bad path parameter returns 400. An unknown path, or `Shomen::NotFound`, returns 404 HTML. An unhandled exception returns 500 HTML with the message escaped; with `SHOMEN_ENV=production` the message is hidden. The exception goes to `Log` under `shomen` in every environment. Every response sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and a `Content-Security-Policy` (phase 6 below).
 
-## Phases 1 to 5 are what run
+## Phases 1 to 6 are what run
 
 Phase 1 builds these:
 
@@ -118,7 +122,17 @@ Phase 5 adds these:
 - `Shomen::Island.script "name", "file.js"`: reads an ES module of the application at compile time and serves it at `/islands/name.js`. For each element with `data-shomen-island="name"`, `shomen.js` calls the module's default export with the element. The framework adds no event listener to an element outside an island
 - In `examples/hello`, `GET /counter` has a counter island
 
-These are specified for later phases and are not in the code: Postgres, and running many identical processes on one database.
+Phase 6 adds these:
+
+- `Shomen::Store.new("postgres://localhost/app")`: the same store on Postgres. The URL's scheme picks SQLite (`sqlite3`) or Postgres (`postgres`, `postgresql`); commands, events, and projections do not change. An append takes one advisory lock, so ids become visible in order. Without `max_pool_size` in the URL, a process keeps at most 10 connections
+- `SHOMEN_ENV=production`: startup fails unless `SHOMEN_SECRET` has at least 32 bytes, and a 500 hides the exception message
+- `SHOMEN_SECRET_VERIFY`: a second secret that only verifies. A cookie it verifies is sent again under `SHOMEN_SECRET`, and a form rendered under either secret still posts. Change the secret in three deploys: put the new secret in `SHOMEN_SECRET_VERIFY`; swap the two; remove `SHOMEN_SECRET_VERIFY`
+- `Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'` on every response. A route that sets its own `Content-Security-Policy` keeps it
+- `Shomen::Server.start(reuse_port: true)`: processes on one host share a port. On Linux, set `net.ipv4.tcp_migrate_req=1` so the connections waiting on a process that stops move to the others
+- On SIGTERM or SIGINT the server stops accepting, closes idle connections and SSE streams, finishes the requests in progress with `Connection: close`, and `start` returns within `shutdown_timeout` (25 seconds by default). A second signal ends the process at once
+- `examples/hello` stays on SQLite. `HELLO_DATABASE_URL=postgres://localhost/hello crystal run src/hello.cr` runs it on an existing Postgres database
+
+Phase 7 is specified and not in the code: consumers that run outside the request, notifications across processes, HTTP caching, and reads from replicas.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 
@@ -145,6 +159,10 @@ crystal spec
 crystal build src/shomen.cr --error-trace
 cd examples/hello && shards install && crystal spec
 ```
+
+Without `SHOMEN_SPEC_POSTGRES` the Postgres specs are pending. To run them, set it to a Postgres URL whose user may create databases, such as `SHOMEN_SPEC_POSTGRES=postgres://localhost/postgres crystal spec`. Each example creates a database and drops it.
+
+On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), and the `examples/hello` specs.
 
 `crystal build` writes `./shomen`. Do not commit that binary.
 

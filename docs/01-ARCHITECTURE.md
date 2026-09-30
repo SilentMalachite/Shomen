@@ -64,6 +64,7 @@ HTTP 要求
 
 フェーズ 6:
 
+- `Shomen::Store.new(url)` は URL のスキームでアダプタを選ぶ。`sqlite3` なら SQLite、`postgres` か `postgresql` なら Postgres。`max_pool_size` を書かない Postgres の URL は、接続 10 本のプールになる（`docs/decisions/20260929-phase6-store-adapters.md`、`docs/decisions/20260929-phase6-postgres-adapter.md`）
 - Postgres アダプタも同じ `events` テーブルを作り、整数の列を `BIGINT` にする。`id` は `CACHE 1` の identity
 - 追記は、挿入の前に固定の 1 つのキーでトランザクション単位のアドバイザリロックを取り、挿入後すぐにコミットする。そのため id は増える順に見える（`docs/decisions/20260929-scale-event-order.md`）
 

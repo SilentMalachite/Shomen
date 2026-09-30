@@ -1,7 +1,7 @@
 require "http/server"
 require "http/server/handler"
 require "random/secure"
-require "crypto/subtle"
+require "log"
 
 class Shomen::Server
   include HTTP::Handler
@@ -11,33 +11,103 @@ class Shomen::Server
   CSRF_FIELD      = "_csrf"
   MAX_FORM_BYTES  = 1_048_576
   CONFLICT_DETAIL = "This changed after the page was loaded. Reload the page and try again."
+  # docs/decisions/20260929-phase6-csp.md
+  CSP              = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+  MIN_SECRET_BYTES = 32
+  # Inside the 30 seconds Kubernetes waits before SIGKILL.
+  SHUTDOWN_TIMEOUT = 25.seconds
+
+  Log = ::Log.for("shomen")
 
   @@generated_secret : String?
 
-  def self.start(host : String = "127.0.0.1", port : Int32 = 3000, https : Bool = false) : Nil
+  getter connections = Shomen::Connections.new
+
+  # Serves until SIGTERM or SIGINT. Then it stops accepting, closes idle
+  # connections and SSE streams, and returns once the requests in progress
+  # finish or shutdown_timeout passes. A second signal ends the process at
+  # once (docs/decisions/20260929-phase6-shutdown.md).
+  def self.start(host : String = "127.0.0.1", port : Int32 = 3000, https : Bool = false, reuse_port : Bool = false, shutdown_timeout : Time::Span = SHUTDOWN_TIMEOUT) : Nil
     Shomen::Router.entries
-    server = HTTP::Server.new([new(https: https)])
-    server.bind_tcp(host, port)
-    server.listen
+    server = new(https: https)
+    listener = Shomen::Listener.new(server.connections, server)
+    address = listener.bind_tcp(host, port, reuse_port: reuse_port)
+    # The first run puts TERM and INT back to the kernel's default action
+    # with LibC.signal, not Signal#reset, so a later signal ends the process
+    # at once even while the event loop is stalled, and Crystal's handlers
+    # stay registered: a signal already in the signal pipe still finds one
+    # (a missing one is fatal). That run puts its signal back to the default
+    # action and sends it again, so the process ends by that signal.
+    stopping = Atomic(Bool).new(false)
+    {Signal::TERM, Signal::INT}.each do |signal|
+      signal.trap do |received|
+        if stopping.swap(true)
+          received.reset
+          Process.signal(received, Process.pid)
+        else
+          LibC.signal(Signal::TERM.value, LibC::SIG_DFL)
+          LibC.signal(Signal::INT.value, LibC::SIG_DFL)
+          server.connections.drain
+          listener.close
+          STDERR.puts "shomen: shutting down"
+        end
+      end
+    end
+    STDERR.puts "shomen: listening on http://#{address}"
+    listener.listen
+    server.connections.wait(shutdown_timeout)
+  end
+
+  # SHOMEN_ENV=production, read when a server is made
+  # (docs/decisions/20260929-phase6-production.md).
+  def self.production? : Bool
+    ENV["SHOMEN_ENV"]? == "production"
+  end
+
+  # The one 32-byte rule for every production secret; `name` is what the
+  # error message names (SHOMEN_SECRET, SHOMEN_SECRET_VERIFY, ...).
+  protected def self.check_length(name : String, value : String) : Nil
+    if value.bytesize < MIN_SECRET_BYTES
+      raise ArgumentError.new("#{name} must be at least #{MIN_SECRET_BYTES} bytes when SHOMEN_ENV=production")
+    end
   end
 
   def self.secret_from_env : String
-    if secret = ENV["SHOMEN_SECRET"]?.presence
+    secret = ENV["SHOMEN_SECRET"]?.presence
+    if production?
+      unless secret
+        raise ArgumentError.new("SHOMEN_SECRET must be set to at least #{MIN_SECRET_BYTES} bytes when SHOMEN_ENV=production")
+      end
+      check_length("SHOMEN_SECRET", secret)
       return secret
     end
+    return secret if secret
     @@generated_secret ||= begin
       STDERR.puts "shomen: SHOMEN_SECRET is not set; using a random secret until restart"
       Random::Secure.hex(32)
     end
   end
 
-  def initialize(secret : String = Shomen::Server.secret_from_env, @https : Bool = false)
-    @sessions = Shomen::SessionStore.new(secret)
+  def self.verify_secret_from_env : String?
+    secret = ENV["SHOMEN_SECRET_VERIFY"]?.presence
+    check_length("SHOMEN_SECRET_VERIFY", secret) if secret && production?
+    secret
+  end
+
+  def initialize(secret : String = Shomen::Server.secret_from_env, verify_secret : String? = Shomen::Server.verify_secret_from_env, @https : Bool = false)
+    @sessions = Shomen::SessionStore.new(secret, verify_secret)
+    @production = Shomen::Server.production?
+    if @production
+      Shomen::Server.check_length("secret", secret)
+      Shomen::Server.check_length("verify_secret", verify_secret) if verify_secret
+    end
   end
 
   def call(context : HTTP::Server::Context) : Nil
-    session = @sessions.load(context.request.cookies[Shomen::Session::COOKIE]?.try(&.value))
-    write_response(context, respond(context.request, session), session)
+    @connections.request do
+      session = @sessions.load(context.request.cookies[Shomen::Session::COOKIE]?.try(&.value))
+      write_response(context, respond(context.request, session), session)
+    end
   end
 
   def dispatch(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response
@@ -63,7 +133,8 @@ class Shomen::Server
   rescue ex : Shomen::Conflict
     error_response(409, "Conflict", CONFLICT_DETAIL)
   rescue ex
-    error_response(500, "Error", ex.message)
+    Log.error(exception: ex) { "unhandled exception" }
+    error_response(500, "Error", @production ? nil : ex.message)
   end
 
   # nil means the body is over MAX_FORM_BYTES and was not read to the end.
@@ -90,7 +161,7 @@ class Shomen::Server
   private def csrf_valid?(form : URI::Params, session : Shomen::Session) : Bool
     sent = form[CSRF_FIELD]?
     return false unless sent
-    Crypto::Subtle.constant_time_compare(sent, session.csrf_token)
+    @sessions.csrf_valid?(session, sent)
   end
 
   private def error_response(status : Int32, heading : String, detail : String?) : Shomen::Response
@@ -108,19 +179,38 @@ class Shomen::Server
     context.response.headers.add("Vary", Shomen::Route::TARGET_HEADER)
     # Behind HTTPS the cookie goes out every time, so one issued over HTTP
     # before the switch is replaced with a Secure one.
-    if session.fresh? || @https
+    # A cookie that only SHOMEN_SECRET_VERIFY verified goes out again under
+    # SHOMEN_SECRET.
+    if session.fresh? || session.reissue? || @https
       context.response.headers.add("Set-Cookie", @sessions.cookie(session, @https).to_set_cookie_header)
     end
     context.response.headers["X-Content-Type-Options"] = "nosniff"
     context.response.headers["Referrer-Policy"] = "no-referrer"
     context.response.headers["X-Frame-Options"] = "DENY"
+    # A route that needs more, such as images from another origin, sends its own.
+    context.response.headers["Content-Security-Policy"] = CSP unless response.headers.has_key?("Content-Security-Policy")
+    # While the server shuts down, no connection is kept for another request.
+    context.response.headers["Connection"] = "close" if @connections.draining?
     if context.request.method == "HEAD"
       context.response.content_length = response.body.bytesize
+      finish(context.response)
     elsif response.is_a?(Shomen::SSE)
+      @connections.stream
       stream(context.response, response)
     else
       context.response.print(response.body)
+      finish(context.response)
     end
+  end
+
+  # HTTP::Server closes and flushes a response only after call returns, when
+  # the request no longer counts as busy, so a shutdown could end the
+  # process first. The response is closed and flushed here instead; the
+  # later close does nothing. A close with nothing left in the response's
+  # buffer does not flush the connection, hence the flush.
+  private def finish(output : HTTP::Server::Response) : Nil
+    output.close
+    output.flush
   end
 
   # A write fails once the client has left, and that ends the stream.

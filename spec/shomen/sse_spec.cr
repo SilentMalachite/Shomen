@@ -94,9 +94,9 @@ describe Shomen::SSE do
     end
   end
 
-  it "adds no shard, so an application without SSE gains no dependency" do
-    YAML.parse(File.read("shard.yml"))["dependencies"].as_h.keys.map(&.as_s).should eq(["sqlite3", "db"])
+  it "adds no shard beyond the store's, so an application without SSE gains no dependency" do
+    YAML.parse(File.read("shard.yml"))["dependencies"].as_h.keys.map(&.as_s).should eq(["sqlite3", "db", "pg"])
     locked = YAML.parse(File.read("examples/hello/shard.lock"))["shards"].as_h.keys.map(&.as_s)
-    locked.sort.should eq(["db", "shomen", "sqlite3"])
+    locked.sort.should eq(["db", "pg", "shomen", "sqlite3"])
   end
 end

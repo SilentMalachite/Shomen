@@ -27,7 +27,7 @@ Decision logs and the notes under `docs/superpowers/` stay Japanese. They are no
 - Crystal 1.20 or newer. Public types live under `Shomen::`.
 - Identifiers, code, and commit subjects are English.
 - No Amber, Lucky, Kemal, Marten, or Rails compatibility layer.
-- No new shard unless the spec names it. Phases 0–2 had none. Phase 3 added `sqlite3` and `db`.
+- No new shard unless the spec names it. Phases 0–2 had none. Phase 3 added `sqlite3` and `db`. Phase 6 added `pg`.
 - Keep the sample application in `examples/`. Do not fold it into the framework.
 - Run `crystal tool format` on Crystal files you edit.
 
@@ -45,6 +45,10 @@ cd examples/hello && shards install && crystal spec
 `crystal build` writes `./shomen` in the root. Leave it uncommitted.
 
 Specs call the handler directly or build a fixture. They do not bind a fixed public port. The `shomen.js` specs and the counter spec of `examples/hello` serve on an ephemeral port on 127.0.0.1 and drive a headless Chrome. Without Chrome they are pending; `SHOMEN_CHROME` names the binary. The SSE specs read the stream through a pipe.
+
+The Postgres specs run only when `SHOMEN_SPEC_POSTGRES` names a Postgres URL whose user may create databases (for example `postgres://localhost/postgres`); without it they are pending. Each example creates a database named `shomen_spec_...` and drops it. The shutdown, `reuse_port`, and two-process specs build `spec/support/server_worker.cr` once, start it on an ephemeral port on 127.0.0.1, and wait for lines on its output instead of sleeping. Before calling a phase done, run `crystal spec` with `SHOMEN_SPEC_POSTGRES` set.
+
+On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), and the `examples/hello` specs. Wait for that check to pass before asking for review.
 
 ## Commits
 

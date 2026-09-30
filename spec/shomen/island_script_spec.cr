@@ -1,23 +1,5 @@
 require "../spec_helper"
 
-private def on_islands_page(& : Browser, Shomen::Store ->) : Nil
-  with_store do |store|
-    SSERoutes.store = store
-    SSERoutes::TARGET[0] = "count"
-    begin
-      with_live_server do |origin|
-        with_browser do |browser|
-          browser.before_load(PAGE_SPY)
-          browser.visit("#{origin}#{IslandRoutes::Page.path}")
-          yield browser, store
-        end
-      end
-    ensure
-      SSERoutes.store = nil
-    end
-  end
-end
-
 # A promise that resolves once the module of the island id has shown its button.
 private def shown(id : String) : String
   %(waitFor(() => document.getElementById("#{id}-add")?.hidden === false ? true : undefined))

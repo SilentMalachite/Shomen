@@ -64,6 +64,7 @@ Phase 3:
 
 Phase 6:
 
+- `Shomen::Store.new(url)` picks the adapter from the URL scheme: `sqlite3` for SQLite, `postgres` or `postgresql` for Postgres. A Postgres URL without `max_pool_size` gets a pool of 10 connections (`docs/decisions/20260929-phase6-store-adapters.md`, `docs/decisions/20260929-phase6-postgres-adapter.md`)
 - The Postgres adapter creates the same `events` table with `BIGINT` integer columns. `id` is an identity with `CACHE 1`
 - An append takes a transaction-scoped advisory lock with one fixed key before its insert, then commits right away. So ids become visible in increasing order (`docs/decisions/20260929-scale-event-order.md`)
 

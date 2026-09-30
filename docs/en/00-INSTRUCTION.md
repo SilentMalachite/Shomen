@@ -165,7 +165,7 @@ The server attaches security headers by default.
 - `Referrer-Policy: no-referrer`
 - `X-Frame-Options: DENY`
 
-A stricter CSP comes later. Phase 1 may attach one, and does not have to.
+From phase 6 the server also attaches `Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'`. When the route's response already has a `Content-Security-Policy`, the server keeps it (`docs/decisions/20260929-phase6-csp.md`).
 
 ### 5. Server
 
@@ -174,7 +174,7 @@ A stricter CSP comes later. Phase 1 may attach one, and does not have to.
 - Default bind: `127.0.0.1:3000`
 - Match the route, build `Input`, call `call`, write the `Response`
 - An unmatched request is a 404 HTML document, not empty JSON
-- An unhandled exception is a 500 HTML document. Development may show the message. A production-style flag hides it
+- An unhandled exception is a 500 HTML document. Development may show the message. With `SHOMEN_ENV=production` the document hides it. The exception goes to the log in every environment (phase 6, `docs/decisions/20260929-phase6-production.md`)
 - Several identical processes on one host share a port through `reuse_port: true` (phase 6, `docs/decisions/20260929-scale-reuse-port.md`)
 - On SIGTERM or SIGINT the server stops accepting connections, closes idle keep-alive connections, finishes the requests in progress with `Connection: close` within a time limit, and exits (phase 6, `docs/decisions/20260929-scale-graceful-shutdown.md`)
 

@@ -35,29 +35,26 @@ describe Shomen::Projection do
     end
   end
 
-  it "rebuilds the read model after a restart" do
-    path = File.tempname("shomen-store", ".sqlite3")
+  store_it "rebuilds the read model after a restart" do |store, url|
+    store.append("s", 0_i64, note("one"))
+    store.append("s", 1_i64, note("two"))
+    store.close
+    second = Shomen::Store.new(url)
     begin
-      first = Shomen::Store.new("sqlite3://#{path}")
-      first.append("s", 0_i64, note("one"))
-      first.append("s", 1_i64, note("two"))
-      first.close
-
-      second = Shomen::Store.new("sqlite3://#{path}")
       log = SpecEvents::Log.new(second).catch_up
       log.lines.map { |line| {line.text, line.version} }.should eq([{"one", 1_i64}, {"two", 2_i64}])
-      second.close
     ensure
-      remove_database(path)
+      second.close
     end
   end
 
-  it "sees an event appended through another store on the same file" do
-    with_store do |store, path|
-      other = Shomen::Store.new("sqlite3://#{path}")
+  store_it "sees an event appended through another store on the same database" do |store, url|
+    other = Shomen::Store.new(url)
+    begin
       log = SpecEvents::Log.new(store).catch_up
       other.append("s", 0_i64, note("elsewhere"))
       log.catch_up.lines.map(&.text).should eq(["elsewhere"])
+    ensure
       other.close
     end
   end

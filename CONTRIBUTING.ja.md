@@ -27,7 +27,7 @@ Shomen は、仕様を直してから実装を広げます。正本を読み、�
 - Crystal は 1.20 以上。公開型は `Shomen::` の下に置きます。
 - 識別子、コード、コミットの題名は英語です。
 - Amber、Lucky、Kemal、Marten、Rails の互換レイヤは置きません。
-- 仕様が名前を挙げた shard 以外は足しません。フェーズ 0〜2 の依存はゼロで、フェーズ 3 で `sqlite3` と `db` を足しました。
+- 仕様が名前を挙げた shard 以外は足しません。フェーズ 0〜2 の依存はゼロで、フェーズ 3 で `sqlite3` と `db` を、フェーズ 6 で `pg` を足しました。
 - サンプルは `examples/` に置き、フレームワーク本体へ埋め込みません。
 - 触った Crystal ファイルは `crystal tool format` に通します。
 
@@ -45,6 +45,10 @@ cd examples/hello && shards install && crystal spec
 `crystal build` はルートに `./shomen` を書き出します。コミットには含めません。
 
 spec はハンドラを直接呼ぶか、フィクスチャをビルドします。固定の公開ポートは取りません。`shomen.js` の spec と `examples/hello` のカウンターの spec は 127.0.0.1 の一時ポートで待ち受け、ヘッドレスの Chrome を動かします。Chrome が無ければ pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます。SSE の spec はストリームをパイプ越しに読みます。
+
+Postgres の spec は、`SHOMEN_SPEC_POSTGRES` に DB を作れるユーザーの Postgres の URL（例 `postgres://localhost/postgres`）を入れたときだけ走ります。無ければ pending です。例ごとに `shomen_spec_...` という DB を作り、終わったら消します。シャットダウン、`reuse_port`、2 プロセスの spec は、`spec/support/server_worker.cr` を 1 回ビルドして 127.0.0.1 の一時ポートで起動し、sleep ではなく出力の行を待ちます。フェーズを終える前に、`SHOMEN_SPEC_POSTGRES` を付けて `crystal spec` を走らせます。
+
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec を走らせます。このチェックが通ってから、プルリクエストをレビューに出します。
 
 ## コミット
 
