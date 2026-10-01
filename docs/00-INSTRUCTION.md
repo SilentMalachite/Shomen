@@ -185,6 +185,7 @@ DSL は HTML 要素に対応するメソッドを提供する。最低限:
 - 値は署名付き。秘密鍵は環境変数 `SHOMEN_SECRET`。`SHOMEN_ENV=production` のとき、未設定か 32 バイト未満なら起動に失敗する（フェーズ 6、`docs/decisions/20260929-scale-production-secret.md`）。production 以外では、未設定ならランダムな鍵を使う（`docs/decisions/20260929-phase2-secret-fallback.md`）
 - `SHOMEN_SECRET_VERIFY` を設定すると、署名には使わず検証だけに使う 2 つ目の鍵になる。クッキーと CSRF トークンを検証する。この鍵で通ったクッキーは `SHOMEN_SECRET` で出し直す。鍵の入れ替えは 3 回のデプロイで行う。切れるのは、2 回目と 3 回目の間に使われなかったセッションと、2 回目より前に描画されて 3 回目の時点でまだ送信されていないフォームだけ（フェーズ 6、`docs/decisions/20260929-scale-secret-rotation.md`）
 - 中身は小さな Key-Value。署名付きクッキーか DB に置き、1 プロセスのメモリには置かない。フェーズ 2 のセッションが持つのは id と、id から導ける値（CSRF トークン）だけ。map は、上限と期限とあわせて、ルートがセッションへ値を書く API を入れるときに置く（`docs/decisions/20260929-phase2-session-store.md`）
+- 2 つ目の署名付きクッキー `shomen_append` が、セッションが最後に追記した `id` を 60 秒覚える。追記するルートは `remember store.append(...)` と書き、セッションが覚えている `id` を `must_see` で読む（フェーズ 7、`docs/decisions/20261001-phase7-remember-append.md`）
 - 認証一式（登録・パスワードリセット・OAuth）は範囲外
 
 ### 7. コマンドとイベント（フェーズ 3）
@@ -260,7 +261,7 @@ end
 - `Shomen::Consumer` は両方を表す 1 つの型。`name` がチェックポイントの行を名指す。`write(recorded, connection)` はバッチのトランザクションの中でコンシューマの表に書き、`react(recorded)` は副作用を実行し、`create_tables(connection)` は表を 1 回だけ作る。アプリは `Shomen::Server.start` の前に `start` を呼び、`start` から戻った後、Store を閉じる前に `stop` を呼ぶ。SQLite と Postgres の両方で動かす SQL は、パラメータを `$1`、`$2`、… と初出の順に番号付けする（`docs/decisions/20261001-phase7-consumer-api.md`、`docs/decisions/20261001-phase7-consumer-batch.md`）
 - 追記がコミットされたら、Postgres アダプタは新しい最大の `id` を載せた通知を送る。すべてのプロセスのコンシューマと SSE ストリームがそれで起きる。それぞれ一定間隔でもポーリングするので、通知が落ちても遅れるだけで済む。SQLite には通知が無く、ポーリングだけを使う（`docs/decisions/20260929-scale-notify.md`）。プロセスは、ある DB への追記を何かが初めて待ったときに、その DB の通知の受信とポーリングを始め、それを始めた Store が閉じたときに止める。プロセスは DB ごとに 1 回だけポーリングし、間隔は待ちを始めた Store の `poll_interval`（`Shomen::Store.new(url, poll_interval: 5.seconds)`）にする（`docs/decisions/20261001-phase7-append-watcher.md`、`docs/decisions/20261001-phase7-notify-channel.md`）
 - 表に置いたプロジェクションを更新するのは、そのコンシューマだけ。ある `id` を見る必要がある要求は、そのプロジェクションのチェックポイントがそこへ届くまで、上限つきで待つ。上限を過ぎたら、古い状態を見せずに `Shomen::Unavailable` を投げる。セッションはその `id` を一定時間後に忘れるので、1 つのイベントが詰まっても、その後のすべてのページが使えなくなることはない。`consumer.read(id, within: 2.seconds) { |connection| … }` はチェックポイントを待ってから、読むための接続を渡す（`docs/decisions/20261001-phase7-consumer-read.md`）
-- 読みは replica に回してよい。要求がイベントを追記したら、セッションがその追記の `id` を覚えている間、同じセッションの後の要求は、どのプロセスが受けても、その追記より古い状態を見せない。上の待ち方を使い、replica が遅れたままなら primary から読む（`docs/decisions/20260929-scale-read-your-writes.md`）
+- 読みは replica に回してよい。要求がイベントを追記したら、セッションがその追記の `id` を覚えている間、同じセッションの後の要求は、どのプロセスが受けても、その追記より古い状態を見せない。上の待ち方を使い、replica が遅れたままなら primary から読む（`docs/decisions/20260929-scale-read-your-writes.md`）。`Shomen::Store.new(url, replica: replica_url)` はその読みを Postgres の replica に回す。`projection.catch_up(must_see)` と `consumer.read(must_see) { |connection| … }` が replica を待つ（`docs/decisions/20261001-phase7-replica.md`）
 - GET ルートは検証子（`Input` とリードモデルから作る文字列）を返せる。サーバはそれにビルド ID とセッションの CSRF トークンを合わせて弱い `ETag` として送り、`If-None-Match` が一致したらビューを呼ばずに 304 を返す（`docs/decisions/20260929-scale-etag.md`）
 - 描画した断片は、プロセス内の上限つきキャッシュに置ける。キーには、断片が依存するものをすべて含める。入力、見る人によって中身が変わるなら見る人、表示するデータとともに変わる値（ストリームの版やプロジェクションのチェックポイントなど）である。手で無効化するものは無い。キャッシュはプロセス内の全セッションが共有するので、いまの CSRF トークンを含む断片をキャッシュしようとすると例外になる（`docs/decisions/20260929-scale-fragment-cache.md`）
 - シャーディング、複数リージョンからの書き込み、予約実行と遅延実行のジョブは、この節に含めない
