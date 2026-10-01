@@ -23,7 +23,7 @@ class Shomen::FragmentCache
 
   # In the order of use, least recent first.
   @entries = {} of String => String
-  @bytes = 0
+  @bytes = 0_i64
   @lock = Mutex.new
 
   def initialize(@max_bytes : Int32 = MAX_BYTES)
@@ -55,7 +55,7 @@ class Shomen::FragmentCache
     if old = @entries.delete(key)
       @bytes -= key.bytesize + old.bytesize
     end
-    size = key.bytesize + markup.bytesize
+    size = key.bytesize.to_i64 + markup.bytesize
     return if size > @max_bytes
     while @bytes + size > @max_bytes
       dropped, dropped_markup = @entries.shift

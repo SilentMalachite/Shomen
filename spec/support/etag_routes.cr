@@ -64,10 +64,48 @@ module ETagRoutes
       "own"
     end
 
+    def cache_control : String
+      "private, max-age=60"
+    end
+
     def call(input : Input) : Shomen::Response
-      response = render PageView.new("own")
+      render PageView.new("own")
+    end
+  end
+
+  # Sets a Cache-Control in call that its 304 would not send.
+  class CallCacheControl < Shomen::Route
+    method GET
+    path "/phase7/etag-call-cache"
+
+    struct Input
+    end
+
+    def validator(input : Input) : String
+      "call"
+    end
+
+    def call(input : Input) : Shomen::Response
+      response = render PageView.new("call")
       response.headers["Cache-Control"] = "private, max-age=60"
       response
+    end
+  end
+
+  class RememberingValidator < Shomen::Route
+    method GET
+    path "/phase7/etag-remember"
+
+    struct Input
+    end
+
+    def validator(input : Input) : String
+      remember 7_i64
+      "remember"
+    end
+
+    def call(input : Input) : Shomen::Response
+      render PageView.new("remember")
     end
   end
 

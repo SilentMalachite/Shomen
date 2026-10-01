@@ -4,6 +4,10 @@ require "./build_id"
 # The weak ETag of a GET route's validator
 # (docs/decisions/20261001-phase7-etag.md).
 module Shomen::ETag
+  # Sent with a validated response whose route defines no cache_control:
+  # the browser keeps it and asks before each use.
+  CACHE_CONTROL = "private, no-cache"
+
   # Each value goes in after its byte length, so moving the boundary
   # between two values changes the tag.
   def self.tag(validator : String, csrf_token : String, target : String?, build_id : String = Shomen::BUILD_ID) : String

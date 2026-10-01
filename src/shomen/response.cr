@@ -17,16 +17,20 @@ class Shomen::Response
   end
 
   # The answer to a GET whose If-None-Match matched etag.
-  def self.not_modified(etag : String) : self
+  def self.not_modified(etag : String, cache_control : String) : self
     response = new(304, "text/html; charset=utf-8", "")
-    response.etag = etag
+    response.validated(etag, cache_control)
     response
   end
 
-  # Sends etag, and Cache-Control: private, no-cache unless the response
-  # has its own (docs/decisions/20260929-scale-etag.md).
-  def etag=(etag : String) : String
-    @headers["Cache-Control"] = "private, no-cache" unless @headers.has_key?("Cache-Control")
+  # Sends etag and cache_control. A 304 sends the same Cache-Control
+  # without calling the route, so a different one set here raises
+  # (docs/decisions/20261001-phase7-etag.md).
+  def validated(etag : String, cache_control : String) : Nil
+    if (own = @headers["Cache-Control"]?) && own != cache_control
+      raise ArgumentError.new("the route set Cache-Control: #{own}, which its 304 would not send; define cache_control instead")
+    end
+    @headers["Cache-Control"] = cache_control
     @headers["ETag"] = etag
   end
 

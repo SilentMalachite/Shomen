@@ -97,10 +97,20 @@ abstract class Shomen::Route
               # Before call, so the body is no older than the validator
               # (docs/decisions/20261001-phase7-etag.md).
               validator : String = route.validator(input)
+              {% if @type.has_method?("cache_control") %}
+                cache_control : String = route.cache_control
+              {% else %}
+                cache_control = ::Shomen::ETag::CACHE_CONTROL
+              {% end %}
               tag = ::Shomen::ETag.tag(validator, csrf_token, route.target)
-              return ::Shomen::Response.not_modified(tag) if ::Shomen::ETag.match?(request.headers["If-None-Match"]?, tag)
-              response = route.call(input)
-              response.etag = tag if response.status == 200 && !response.is_a?(::Shomen::SSE)
+              if ::Shomen::ETag.match?(request.headers["If-None-Match"]?, tag)
+                response = ::Shomen::Response.not_modified(tag, cache_control)
+              else
+                response = route.call(input)
+                response.validated(tag, cache_control) if response.status == 200 && !response.is_a?(::Shomen::SSE)
+              end
+            {% elsif @type.has_method?("cache_control") %}
+              {% raise "#{@type.name.stringify} has no validator; only a route with validator may define cache_control" %}
             {% else %}
               response = route.call(input)
             {% end %}

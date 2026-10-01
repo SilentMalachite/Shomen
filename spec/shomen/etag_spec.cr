@@ -70,10 +70,31 @@ describe "a GET route with a validator" do
     ETagRoutes::CALLS.should eq(["validator", "call", "view"])
   end
 
-  it "keeps the Cache-Control the route set" do
+  it "sends the route's cache_control with both the 200 and the 304" do
     response = ETagRoutes::OwnCacheControl.handle(get("/phase7/etag-own-cache"), URI::Params.new, "t")
-    response.headers["ETag"].should eq(Shomen::ETag.tag("own", "t", nil))
+    tag = Shomen::ETag.tag("own", "t", nil)
+    response.status.should eq(200)
+    response.headers["ETag"].should eq(tag)
     response.headers["Cache-Control"].should eq("private, max-age=60")
+    response = ETagRoutes::OwnCacheControl.handle(get("/phase7/etag-own-cache", tag), URI::Params.new, "t")
+    response.status.should eq(304)
+    response.headers["Cache-Control"].should eq("private, max-age=60")
+  end
+
+  it "raises when call sets a Cache-Control the 304 would not send" do
+    expect_raises(ArgumentError, "define cache_control") do
+      ETagRoutes::CallCacheControl.handle(get("/phase7/etag-call-cache"), URI::Params.new, "t")
+    end
+  end
+
+  it "remembers what the validator remembered, on the 304 as on the 200" do
+    response = ETagRoutes::RememberingValidator.handle(get("/phase7/etag-remember"), URI::Params.new, "t")
+    response.status.should eq(200)
+    response.remember.should eq(7)
+    tag = response.headers["ETag"]
+    response = ETagRoutes::RememberingValidator.handle(get("/phase7/etag-remember", tag), URI::Params.new, "t")
+    response.status.should eq(304)
+    response.remember.should eq(7)
   end
 
   it "sends no ETag with a redirect" do
@@ -101,6 +122,18 @@ describe "a GET route with a validator" do
 
   it "fails to compile when the validator does not return a String" do
     status, output = crystal_build_fixture("spec/fixtures/route_validator_not_string.cr")
+    status.should_not eq(0)
+    output.should contain("type must be String")
+  end
+
+  it "fails to compile when a route without a validator defines cache_control" do
+    status, output = crystal_build_fixture("spec/fixtures/route_cache_control_without_validator.cr")
+    status.should_not eq(0)
+    output.should contain("only a route with validator may define cache_control")
+  end
+
+  it "fails to compile when cache_control does not return a String" do
+    status, output = crystal_build_fixture("spec/fixtures/route_cache_control_not_string.cr")
     status.should_not eq(0)
     output.should contain("type must be String")
   end
