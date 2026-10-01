@@ -34,7 +34,7 @@ class Shomen::Store
   getter poll_interval : Time::Span
 
   # replica is the URL of a Postgres replica of the Postgres database at
-  # url. Shomen creates nothing there and only reads.
+  # url, one standby. Shomen creates nothing there and only reads.
   def initialize(url : String, @poll_interval : Time::Span = POLL_INTERVAL, replica : String? = nil)
     raise ArgumentError.new("poll_interval must be positive") unless @poll_interval.positive?
     uri = parse("store", url)
