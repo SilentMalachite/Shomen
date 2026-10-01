@@ -7,7 +7,7 @@
 | 順 | サブ計画 | build 項目（`docs/en/02-PHASES.md` のフェーズ 7） | 満たす受入 | 依存 |
 |---|---|---|---|---|
 | 7a | 通知とポーリング、プロセスをまたぐ SSE（`2026-10-01-phase7a-notify-sse.md`） | A notification after an append (Postgres `LISTEN/NOTIFY`), with polling as the fallback / SSE streams that receive changes appended through any process | An SSE client connected to process A receives an update for an event appended through process B | なし |
-| 7b | コンシューマと表に置くプロジェクション | Consumers ... / Projections that keep their rows and checkpoint in database tables, and a bounded wait for a request that must see a given `id` | 2 プロセスで同じコンシューマ（1 回ずつ、`id` 順、kill 後も欠けない）/ 書き込みとチェックポイントが一緒にコミットされる / 表のプロジェクションが届かなければ 503（待ちと `Shomen::Unavailable` の仕組みまで） | 7a（コンシューマは `wait_for_append` で起きる） |
+| 7b | コンシューマと表に置くプロジェクション（`2026-10-01-phase7b-consumers.md`） | Consumers ... / Projections that keep their rows and checkpoint in database tables, and a bounded wait for a request that must see a given `id` | 2 プロセスで同じコンシューマ（1 回ずつ、`id` 順、kill 後も欠けない）/ 書き込みとチェックポイントが一緒にコミットされる / 表のプロジェクションが届かなければ 503（待ちと `Shomen::Unavailable` の仕組みまで） | 7a（コンシューマは `wait_for_append` で起きる） |
 | 7c | セッションが覚える `id`、read-your-writes、replica | Reads from a Postgres replica, with read-your-writes within a session | 遅れる replica でも POST → リダイレクト → GET で変更が見える / 503 の後、セッションが `id` を忘れたら 200 | 7b（`Shomen::Unavailable`、表のプロジェクションの待ち） |
 | 7d | ETag と断片キャッシュ、フェーズ 7 の締め | A weak `ETag` ... / A bounded in-process cache for rendered fragments ... | 一致する `If-None-Match` は 304 でビューを呼ばない / セッションかビルドが変わったら古い `ETag` で 200 / CSRF トークン入りの断片のキャッシュは例外 / SQLite のアプリはそのまま動き、DB 以外のサービスは要らない | 7a〜7c と独立。締めを兼ねるので最後 |
 
