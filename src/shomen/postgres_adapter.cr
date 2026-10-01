@@ -26,11 +26,26 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
     )
     SQL
 
+  CONSUMERS_SCHEMA = <<-SQL
+    CREATE TABLE IF NOT EXISTS consumers (
+      name       TEXT   PRIMARY KEY,
+      checkpoint BIGINT NOT NULL
+    )
+    SQL
+
   LOCK           = "SELECT pg_advisory_xact_lock($1)"
   SELECT_VERSION = "SELECT COALESCE(MAX(version), 0) FROM events WHERE stream = $1"
   INSERT         = "INSERT INTO events (stream, version, type, payload, at) VALUES ($1, $2, $3, $4, $5) RETURNING id"
   SELECT_AFTER   = "SELECT id, stream, version, type, payload FROM events WHERE id > $1 ORDER BY id LIMIT $2"
   SELECT_LAST    = "SELECT COALESCE(MAX(id), 0) FROM events"
+
+  REGISTER          = "INSERT INTO consumers (name, checkpoint) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING"
+  SELECT_CHECKPOINT = "SELECT COALESCE(MAX(checkpoint), 0) FROM consumers WHERE name = $1"
+  CLAIM             = "SELECT checkpoint FROM consumers WHERE name = $1 FOR UPDATE SKIP LOCKED"
+  ADVANCE           = "UPDATE consumers SET checkpoint = $1 WHERE name = $2"
+  # Ends a batch whose process stopped answering, and its lock
+  # (docs/decisions/20261001-phase7-consumer-batch.md).
+  BATCH_IDLE_LIMIT = "SET LOCAL idle_in_transaction_session_timeout = '60s'"
   # docs/decisions/20261001-phase7-notify-channel.md
   CHANNEL = "shomen_events"
   NOTIFY  = "SELECT pg_notify($1, $2)"
@@ -66,7 +81,10 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
     uri.query_params = params
     @db = DB.open(uri.to_s)
     begin
-      locked { |connection| connection.exec(SCHEMA) }
+      locked do |connection|
+        connection.exec(SCHEMA)
+        connection.exec(CONSUMERS_SCHEMA)
+      end
     rescue ex
       @db.close
       raise ex
@@ -129,6 +147,52 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
 
   def close : Nil
     @db.close
+  end
+
+  # Under the lock appends take, as CREATE TABLE IF NOT EXISTS can fail
+  # when two run at once.
+  def register(name : String, & : DB::Connection ->) : Nil
+    locked do |connection|
+      yield connection
+      connection.exec(REGISTER, name)
+    end
+  end
+
+  def checkpoint(name : String) : Int64
+    @db.scalar(SELECT_CHECKPOINT, name).as(Int64)
+  end
+
+  def using_connection(& : DB::Connection ->) : Nil
+    @db.using_connection { |connection| yield connection }
+  end
+
+  # Locks the consumer's row for the whole batch, so its events, their side
+  # effects and writes, and the new checkpoint are one transaction that no
+  # other process runs at the same time. A process that finds the row
+  # locked commits nothing and returns 0.
+  def consume(name : String, limit : Int32, react : Proc(Stored, Nil), write : Proc(Stored, DB::Connection, Nil)) : Int32
+    applied = 0
+    error = nil
+    @db.using_connection do |connection|
+      connection.exec("BEGIN")
+      begin
+        connection.exec(BATCH_IDLE_LIMIT)
+        if from = connection.query_one?(CLAIM, name, as: Int64)
+          rows = connection.query_all(SELECT_AFTER, from, limit, as: {Int64, String, Int64, String, String})
+          applied, last, error = each_in_savepoint(connection, rows) do |row|
+            react.call(row)
+            write.call(row, connection)
+          end
+          connection.exec(ADVANCE, last, name) if applied > 0
+        end
+        connection.exec("COMMIT")
+      rescue ex
+        rollback(connection)
+        raise ex
+      end
+    end
+    raise error if error
+    applied
   end
 
   # Runs the block in a transaction that holds the lock, and commits as

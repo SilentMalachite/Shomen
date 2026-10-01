@@ -19,6 +19,10 @@ def note(text : String) : Array(Shomen::Event)
   [SpecEvents::Noted.new(text)] of Shomen::Event
 end
 
+def noted(texts : Array(String)) : Array(Shomen::Event)
+  texts.map { |text| SpecEvents::Noted.new(text).as(Shomen::Event) }
+end
+
 STORE_KINDS = {"sqlite3", "postgres"}
 
 # Yields the URL of a new, empty database of kind and removes it afterwards.
