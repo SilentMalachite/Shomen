@@ -50,4 +50,21 @@ describe Shomen::AppendSignal do
     signal.announce(4_i64)
     signal.last.should eq(5_i64)
   end
+
+  it "does not wake a waiter for an id at or below the one it waits past" do
+    signal = Shomen::AppendSignal.new
+    woke = Channel(Bool).new(1)
+    spawn { woke.send(signal.wait(after: 5_i64, within: 5.seconds)) }
+    until_waiting(signal, 1)
+    signal.announce(3_i64)
+    signal.announce(5_i64)
+    signal.waiting.should eq(1)
+    select
+    when woke.receive
+      fail "the waiter woke too early"
+    else
+    end
+    signal.announce(6_i64)
+    receive_within(woke).should be_true
+  end
 end

@@ -1,13 +1,14 @@
 # The server the process specs start
 # (docs/decisions/20260929-phase6-process-spec.md). Arguments: the port (0
 # for an ephemeral one), "reuse" or "single", and the shutdown limit in
-# seconds. WORKER_DATABASE_URL names the store.
+# seconds. WORKER_DATABASE_URL names the store, and WORKER_POLL_MS its
+# poll interval in milliseconds (5000 unless set).
 require "../../src/shomen"
 require "./events"
 require "./projections"
 
 module Worker
-  STORE = Shomen::Store.new(ENV["WORKER_DATABASE_URL"])
+  STORE = Shomen::Store.new(ENV["WORKER_DATABASE_URL"], poll_interval: (ENV["WORKER_POLL_MS"]? || "5000").to_i.milliseconds)
   NOTES = SpecEvents::Log.new(STORE)
 
   class Ping < Shomen::Route

@@ -173,4 +173,25 @@ describe Shomen::PostgresAdapter do
       end
     end
   end
+
+  postgres_it "notifies its channel with the last id once an append commits, and not for a conflict" do |store, url|
+    payloads = Channel(String).new(4)
+    listener = PG.connect_listen(url, Shomen::PostgresAdapter::CHANNEL) { |notification| payloads.send(notification.payload) }
+    begin
+      store.append("a", 0_i64, [SpecEvents::Noted.new("1"), SpecEvents::Noted.new("2")] of Shomen::Event)
+      expect_raises(Shomen::Conflict) { store.append("a", 0_i64, note("3")) }
+      store.append("b", 0_i64, note("4"))
+      received = Array.new(2) do
+        select
+        when payload = payloads.receive
+          payload
+        when timeout(5.seconds)
+          fail "no notification within 5 seconds"
+        end
+      end
+      received.should eq(["2", "3"])
+    ensure
+      listener.close
+    end
+  end
 end

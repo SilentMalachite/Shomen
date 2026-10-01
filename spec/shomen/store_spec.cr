@@ -274,4 +274,13 @@ describe Shomen::Store do
       fail "the waiting fiber did not wake"
     end
   end
+
+  store_it "reads the highest id any writer committed" do |store, url|
+    adapter = store.@adapter
+    adapter.last_id.should eq(0_i64)
+    store.append("a", 0_i64, [SpecEvents::Noted.new("1"), SpecEvents::Noted.new("2")] of Shomen::Event)
+    insert_unannounced(url, "elsewhere")
+    adapter.last_id.should eq(3_i64)
+    store.last_appended.should eq(2_i64)
+  end
 end

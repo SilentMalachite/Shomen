@@ -62,3 +62,17 @@ private def store_example(kind : String, description : String, file : String, li
     end
   end
 end
+
+# Commits one event the way another writer would: with no notification
+# and no announcement to this process. The SQL runs on SQLite and Postgres.
+def insert_unannounced(url : String, stream : String) : Nil
+  DB.open(url) do |db|
+    db.exec(%(INSERT INTO events (stream, version, type, payload, at) VALUES ('#{stream}', 1, 'spec.noted', '{"text":"unannounced","at":"2026-10-01T00:00:00Z"}', '2026-10-01T00:00:00Z')))
+  end
+end
+
+# Appends count events to stream through a store in another process.
+def append_elsewhere(url : String, stream : String, count : Int32) : Nil
+  status = Process.run(Workers.binary("spec/support/store_worker.cr"), [url, stream, count.to_s], error: :inherit)
+  raise "store_worker failed" unless status.success?
+end

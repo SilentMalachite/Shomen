@@ -21,6 +21,15 @@ module PostgresSpec
       DB.open(admin) { |db| db.exec("DROP DATABASE IF EXISTS #{name} WITH (FORCE)") }
     end
   end
+
+  # The pids of the connections in db's database that listen for appends
+  # (docs/decisions/20261001-phase7-notify-channel.md).
+  def self.listeners(db : DB::Database) : Array(Int32)
+    db.query_all(
+      "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND application_name LIKE 'shomen-listen-%' AND query LIKE 'LISTEN%'",
+      as: Int32,
+    )
+  end
 end
 
 # An example on a new, empty Postgres database; pending without

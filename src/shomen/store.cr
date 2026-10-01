@@ -5,18 +5,29 @@ require "./append_signal"
 require "./store_adapter"
 require "./sqlite_adapter"
 require "./postgres_adapter"
+require "./append_watcher"
 
 # The append-only event log. The scheme of the URL picks the database
 # (docs/decisions/20260929-phase6-store-adapters.md). After a commit an
-# append wakes what waits for it in this process.
+# append wakes what waits for it in this process; the appends of other
+# processes wake it through Shomen::AppendWatcher.
 class Shomen::Store
+  POLL_INTERVAL = 5.seconds
+
   @@signals = {} of String => Shomen::AppendSignal
   @@signals_lock = Mutex.new
+  # One per database in a process (docs/decisions/20261001-phase7-append-watcher.md).
+  @@watchers = {} of String => Shomen::AppendWatcher
+  @@watchers_lock = Mutex.new
 
   @adapter : Shomen::StoreAdapter
   @signal : Shomen::AppendSignal
+  # The watcher this store started; it stops it on close.
+  @watcher : Shomen::AppendWatcher? = nil
+  @closed = false
 
-  def initialize(url : String)
+  def initialize(url : String, @poll_interval : Time::Span = POLL_INTERVAL)
+    raise ArgumentError.new("poll_interval must be positive") unless @poll_interval.positive?
     uri = begin
       URI.parse(url)
     rescue ex : URI::Error
@@ -45,14 +56,18 @@ class Shomen::Store
     @signal.announce(@adapter.append(stream, expected_version, rows))
   end
 
-  # The highest id this process appended to the database, 0 before the first.
+  # The highest id this process knows the database holds: its own appends
+  # at once, those of other processes once a notification or a poll tells
+  # it. 0 before the first.
   def last_appended : Int64
     @signal.last
   end
 
-  # Waits until this process appends an event with an id above after.
+  # Waits until this process learns of an event with an id above after.
+  # The first wait on a database starts listening and polling for it.
   # False when within passes first.
   def wait_for_append(after : Int64, within : Time::Span) : Bool
+    watch
     @signal.wait(after, within)
   end
 
@@ -64,6 +79,26 @@ class Shomen::Store
   end
 
   def close : Nil
+    watcher = @@watchers_lock.synchronize do
+      @closed = true
+      owned = @watcher
+      @watcher = nil
+      @@watchers.delete(@adapter.key) if owned
+      owned
+    end
+    watcher.try(&.stop)
     @adapter.close
+  end
+
+  private def watch : Nil
+    @@watchers_lock.synchronize do
+      return if @closed
+      key = @adapter.key
+      unless @@watchers.has_key?(key)
+        watcher = Shomen::AppendWatcher.new(@adapter, @signal, @poll_interval)
+        @@watchers[key] = watcher
+        @watcher = watcher
+      end
+    end
   end
 end

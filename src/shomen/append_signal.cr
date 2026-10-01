@@ -1,8 +1,10 @@
 # Wakes the fibers of this process that wait for an append to one
-# database file. Appends in other processes do not reach it (phase 7).
+# database file. Whoever learns of an append announces its id; a waiter
+# wakes only for an id above the one it waits past.
 class Shomen::AppendSignal
   @last = 0_i64
-  @waiters = [] of Channel(Nil)
+  # Each waiter with the id it waits past.
+  @waiters = [] of {Int64, Channel(Nil)}
   @lock = Mutex.new
 
   # The highest id announced, 0 before the first.
@@ -17,7 +19,8 @@ class Shomen::AppendSignal
   def announce(id : Int64) : Nil
     @lock.synchronize do
       @last = id if id > @last
-      @waiters.each do |waiter|
+      @waiters.each do |after, waiter|
+        next unless after < id
         select
         when waiter.send(nil)
         else
@@ -32,7 +35,7 @@ class Shomen::AppendSignal
     waiter = Channel(Nil).new(1)
     @lock.synchronize do
       return true if @last > after
-      @waiters << waiter
+      @waiters << {after, waiter}
     end
     begin
       select
@@ -42,7 +45,7 @@ class Shomen::AppendSignal
         false
       end
     ensure
-      @lock.synchronize { @waiters.delete(waiter) }
+      @lock.synchronize { @waiters.delete({after, waiter}) }
     end
   end
 end
