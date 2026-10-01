@@ -10,7 +10,26 @@ private def receive_within(channel : Channel(Bool), within : Time::Span = 20.sec
 end
 
 # An adapter whose first polls fail a given number of times.
-private class FlakyAdapter < Shomen::StoreAdapter
+# The consumer side of an adapter, which the watcher does not use.
+private abstract class WatchedAdapter < Shomen::StoreAdapter
+  def register(name : String, & : DB::Connection ->) : Nil
+    raise "not used"
+  end
+
+  def checkpoint(name : String) : Int64
+    raise "not used"
+  end
+
+  def using_connection(& : DB::Connection ->) : Nil
+    raise "not used"
+  end
+
+  def consume(name : String, limit : Int32, react : Proc(Stored, Nil), write : Proc(Stored, DB::Connection, Nil)) : Int32
+    raise "not used"
+  end
+end
+
+private class FlakyAdapter < WatchedAdapter
   property last : Int64 = 0_i64
 
   def initialize(@failures : Int32)
@@ -43,7 +62,7 @@ end
 # An adapter that notifies and lets the spec decide when its listening
 # connection opens. interrupt_listen ends a listen only once it is
 # connected, as terminating a backend that does not exist yet does nothing.
-private class GatedAdapter < Shomen::StoreAdapter
+private class GatedAdapter < WatchedAdapter
   getter entered = Channel(Nil).new(1)
   getter opened = Channel(Nil).new(1)
   getter ended = Channel(Nil).new(1)
@@ -99,7 +118,7 @@ end
 
 # An adapter whose polls wait until the spec opens a gate, so a poll can
 # be in progress when stop runs.
-private class BlockingAdapter < Shomen::StoreAdapter
+private class BlockingAdapter < WatchedAdapter
   getter calls_after_close = 0
   getter entered = Channel(Nil).new(1)
   @gate = Channel(Nil).new

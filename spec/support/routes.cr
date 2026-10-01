@@ -242,3 +242,17 @@ module ConflictRoutes
     end
   end
 end
+
+module UnavailableRoutes
+  class Lagging < Shomen::Route
+    method GET
+    path "/phase7/unavailable"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      raise Shomen::Unavailable.new("secret-8 did not reach event 7 within 00:00:02")
+    end
+  end
+end

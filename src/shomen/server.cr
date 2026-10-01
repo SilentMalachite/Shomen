@@ -11,6 +11,8 @@ class Shomen::Server
   CSRF_FIELD      = "_csrf"
   MAX_FORM_BYTES  = 1_048_576
   CONFLICT_DETAIL = "This changed after the page was loaded. Reload the page and try again."
+  # docs/decisions/20261001-phase7-consumer-read.md
+  UNAVAILABLE_DETAIL = "This page cannot show the latest changes yet. Try again in a moment."
   # docs/decisions/20260929-phase6-csp.md
   CSP              = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
   MIN_SECRET_BYTES = 32
@@ -132,6 +134,8 @@ class Shomen::Server
     error_response(404, "Not found", nil)
   rescue ex : Shomen::Conflict
     error_response(409, "Conflict", CONFLICT_DETAIL)
+  rescue ex : Shomen::Unavailable
+    error_response(503, "Unavailable", UNAVAILABLE_DETAIL)
   rescue ex
     Log.error(exception: ex) { "unhandled exception" }
     error_response(500, "Error", @production ? nil : ex.message)

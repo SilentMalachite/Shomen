@@ -26,6 +26,10 @@ class Shomen::Store
   @watcher : Shomen::AppendWatcher? = nil
   @closed = false
 
+  # How often a watcher this store starts polls; a consumer on this store
+  # tries again at least this often.
+  getter poll_interval : Time::Span
+
   def initialize(url : String, @poll_interval : Time::Span = POLL_INTERVAL)
     raise ArgumentError.new("poll_interval must be positive") unless @poll_interval.positive?
     uri = begin
@@ -72,10 +76,38 @@ class Shomen::Store
   end
 
   def read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)
-    @adapter.read(after, limit).map do |row|
-      id, stream, version, type, payload = row
-      Shomen::Recorded.new(id, stream, version, Shomen::Event.decode(type, payload))
-    end
+    @adapter.read(after, limit).map { |row| recorded(row) }
+  end
+
+  # Creates the row of the consumer called name, at checkpoint 0, with the
+  # tables the block creates (docs/decisions/20261001-phase7-consumer-batch.md).
+  def register(name : String, & : DB::Connection ->) : Nil
+    raise ArgumentError.new("consumer name must not be empty") if name.empty?
+    @adapter.register(name) { |connection| yield connection }
+  end
+
+  # The checkpoint any process committed last for the consumer called name.
+  def checkpoint(name : String) : Int64
+    @adapter.checkpoint(name)
+  end
+
+  # Lends a connection and returns what the block returns. On SQLite the
+  # block must not call this store.
+  def using_connection(& : DB::Connection -> T) : T forall T
+    result = nil
+    @adapter.using_connection { |connection| result = yield connection }
+    result.as(T)
+  end
+
+  # One batch of the consumer called name
+  # (docs/decisions/20261001-phase7-consumer-batch.md). An event that cannot
+  # be decoded fails like one whose react or write raises.
+  def consume(name : String, limit : Int32, react : Proc(Shomen::Recorded, Nil), write : Proc(Shomen::Recorded, DB::Connection, Nil)) : Int32
+    @adapter.consume(
+      name, limit,
+      ->(row : Shomen::StoreAdapter::Stored) { react.call(recorded(row)) },
+      ->(row : Shomen::StoreAdapter::Stored, connection : DB::Connection) { write.call(recorded(row), connection) },
+    )
   end
 
   def close : Nil
@@ -88,6 +120,11 @@ class Shomen::Store
     end
     watcher.try(&.stop)
     @adapter.close
+  end
+
+  private def recorded(row : Shomen::StoreAdapter::Stored) : Shomen::Recorded
+    id, stream, version, type, payload = row
+    Shomen::Recorded.new(id, stream, version, Shomen::Event.decode(type, payload))
   end
 
   private def watch : Nil
