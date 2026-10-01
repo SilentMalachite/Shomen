@@ -7,7 +7,7 @@
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 to 6 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown). Phase 7 has begun: an append wakes SSE streams in every process. The rest of phase 7 is specified and not implemented. There is no release tag yet.
+Version 0.0.0. Phases 1 to 6 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown). Phase 7 has begun: an append wakes SSE streams in every process, and consumers run projections and reactions outside the request. The rest of phase 7 is specified and not implemented. There is no release tag yet.
 
 ## Requirements
 
@@ -135,8 +135,10 @@ Phase 6 adds these:
 Phase 7 adds these so far:
 
 - An append through any process wakes `sse` streams and `wait_for_append` in every process. On Postgres an append sends a notification, and a process that waits listens for it on one connection of its own, outside the pool. The process also polls each database for the highest id, every 5 seconds unless the store whose wait started it was made with `Shomen::Store.new(url, poll_interval:)`, so a lost notification only adds delay. SQLite uses polling alone. A process listens and polls only after something waited on the store
+- `Shomen::Consumer`: a projection kept in tables, or a reaction, run outside the request. Give it a `name`, and override `create_tables(connection)` and `write(recorded, connection)` for the rows it keeps, and `react(recorded)` for a side effect such as mail. Call `start` before `Shomen::Server.start`, and `stop` after it returns, before you close the store. Every process may run the same consumer: a batch commits its writes and the checkpoint together, Postgres locks the checkpoint row and SQLite compares it, so each event's writes apply once, in id order. A side effect runs at least once. A failing event is retried after 1 second, then twice as long each time up to 1 minute, and never skipped. SQL numbered `$1`, `$2`, … in the order the parameters first appear runs on SQLite and Postgres
+- `consumer.read(id, within: 2.seconds) { |connection| … }` waits until the consumer's checkpoint reaches `id`, then lends a connection for the read. Past the limit it raises `Shomen::Unavailable`, which the server answers with a 503 HTML document
 
-The rest of phase 7 is specified and not in the code: consumers that run outside the request, HTTP caching, and reads from replicas.
+The rest of phase 7 is specified and not in the code: a session that remembers its last append, HTTP caching, and reads from replicas.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 
