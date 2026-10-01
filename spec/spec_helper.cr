@@ -23,6 +23,7 @@ require "./support/island_routes"
 require "./support/page_spy"
 require "./support/islands_page"
 require "./support/csp_routes"
+require "./support/etag_routes"
 require "./support/server_process"
 require "./support/consumer_process"
 
