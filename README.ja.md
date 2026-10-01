@@ -7,7 +7,7 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 6 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）が動きます。フェーズ 7 は始まっていて、追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かし、読みを Postgres の replica に回してもセッションは自分の追記を見ます。フェーズ 7 の残りは仕様にあり、実装はまだありません。リリースタグもまだありません。
+バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 7 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）、スケールアウト（追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かし、読みを Postgres の replica に回してもセッションは自分の追記を見て、GET ルートの検証子が 304 を返し、描画した断片をプロセス内にキャッシュする）が動きます。リリースタグはまだありません。
 
 ## 必要なもの
 
@@ -79,7 +79,7 @@ Shomen::Server.start
 
 サーバの待受は `127.0.0.1:3000` です。一致したルートは 200 の HTML、パスパラメータの変換失敗は 400、未知のパスと `Shomen::NotFound` は 404 の HTML、処理されない例外はメッセージをエスケープした 500 の HTML です。`SHOMEN_ENV=production` ではメッセージを出しません。例外は環境によらず `Log` の `shomen` に書きます。すべての応答に `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`、`Content-Security-Policy`（下のフェーズ 6）が付きます。
 
-## いま動くのはフェーズ 1 から 6
+## いま動くのはフェーズ 1 から 7
 
 フェーズ 1 で入っているもの:
 
@@ -132,15 +132,15 @@ Shomen::Server.start
 - SIGTERM か SIGINT を受けると、サーバは受け付けをやめ、アイドルの接続と SSE を閉じ、処理中の要求を `Connection: close` 付きで終えます。`start` は `shutdown_timeout`（既定 25 秒）以内に戻ります。2 回目の合図でプロセスはすぐ終わります
 - `examples/hello` は SQLite のままです。`HELLO_DATABASE_URL=postgres://localhost/hello crystal run src/hello.cr` で、既存の Postgres の DB の上で動きます
 
-フェーズ 7 でここまでに足したもの:
+フェーズ 7 で入っているもの:
 
 - どのプロセスで追記しても、すべてのプロセスの `sse` と `wait_for_append` が起きます。Postgres では追記が通知を送り、待っているプロセスはプールの外の専用の接続 1 本でそれを受けます。プロセスは DB ごとに最大の id をポーリングするので（既定 5 秒。待ちを始めた Store を `Shomen::Store.new(url, poll_interval:)` で作れば変えられます）、通知が落ちても遅れるだけです。SQLite はポーリングだけを使います。受信とポーリングは、その Store で何かが待ってから始まります
 - `Shomen::Consumer`: 要求の外で動く、表に置くプロジェクションか反応です。`name` を決め、持つ行のために `create_tables(connection)` と `write(recorded, connection)` を、メールなどの副作用のために `react(recorded)` を上書きします。`Shomen::Server.start` の前に `start` を呼び、戻った後、Store を閉じる前に `stop` を呼びます。同じコンシューマをどのプロセスで動かしても構いません。バッチは書き込みとチェックポイントを一緒にコミットし、Postgres はチェックポイントの行をロックし、SQLite は比べるので、各イベントの書き込みは `id` 順に 1 回だけ入ります。副作用は少なくとも 1 回実行されます。失敗したイベントは 1 秒後に、その後は倍ずつ、最長 1 分の間隔で再試行され、飛ばされません。パラメータを初出の順に `$1`、`$2`、… と番号付けした SQL は、SQLite と Postgres の両方で動きます
 - `consumer.read(id, within: 2.seconds) { |connection| … }` は、コンシューマのチェックポイントが `id` に届くまで待ってから、読むための接続を渡します。上限を過ぎると `Shomen::Unavailable` を投げ、サーバはそれを 503 の HTML 文書にします
 - `remember store.append(...)`: `append` は最後に追記したイベントの `id` を返し、`remember` はそれを 2 つ目の署名付きクッキー `shomen_append` に入れて、セッションに 60 秒覚えさせます。そのセッションの後の要求では、どのプロセスでも `must_see` がその `id` になります。`projection.catch_up(must_see)` と `consumer.read(must_see) { … }` に渡せば、ページは追記より古い状態を見せません。`sse` の中では、`must_see` はストリームを起こした追記の `id` です
 - `Shomen::Store.new(url, replica: "postgres://replica/app")`: Postgres の Store の読みを replica に回します。`catch_up` は replica から読み、2 秒以内に `must_see` に届かなければ primary から読みます。`consumer.read` は、replica のチェックポイントが届けば replica で、primary のだけが届いていれば primary で読み、どちらも届かなければ `Shomen::Unavailable` を投げます。追記、コンシューマのバッチ、通知は primary のままで、Shomen は replica に何も作りません。replica の URL は 1 台の standby を指してください。接続ごとに別の standby へ振り分ける URL では、`consumer.read` が遅れた standby で読むことがあります
-
-フェーズ 7 の残りは仕様にあり、コードにはありません。HTTP キャッシュです。
+- GET ルートの `def validator(input : Input) : String`: サーバは `call` の前にこれを呼び、その値、ビルド ID、セッションの CSRF トークン、`Shomen-Target` ヘッダから作った弱い `ETag` を送ります。応答が自分で付けていなければ `Cache-Control: private, no-cache` も付けます。`If-None-Match` が一致すれば、`call` を呼ばずに 304 を返します。ビルド ID はコンパイルのたびに変わります。`validator` を定義できるのは GET ルートだけで、`String` を返さなければなりません。それ以外はコンパイルエラーです
+- ルートの中の `cached(CACHE, "notes", notes.checkpoint) { NotesFragment.new(notes) }`（`CACHE = Shomen::FragmentCache.new(max_bytes: 16 * 1024 * 1024)`）: 断片はキーごとに 1 回だけ描画され、プロセスの全セッションが共有します。`max_bytes` を超えたら、最も長く使われていない断片から捨てます。キーには断片が依存するもの、つまり入力、見る人によって中身が変わるなら見る人、データとともに変わる値を入れます。キーの値は `String`、`Int32`、`Int64` です。要求の CSRF トークンを含む断片は例外になります
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 

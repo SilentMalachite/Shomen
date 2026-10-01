@@ -6,7 +6,7 @@
 
 **Phase 7 — scale out**
 
-Phase 6 acceptance is met. When phase 7 acceptance is met, stop and wait for the next instruction.
+Phase 7 acceptance is met. Do not implement past this point. Wait for the next instruction.
 
 ---
 
