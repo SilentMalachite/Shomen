@@ -183,4 +183,20 @@ describe Shomen::Consumer do
       notes.checkpoint.should eq(2_i64)
     end
   end
+
+  it "returns 0 when another process moved the checkpoint during its reactions and its first write fails (sqlite3)" do
+    with_store do |store, path|
+      notes = SpecConsumers::Notes.new(store)
+      notes.checkpoint
+      store.append("s", 0_i64, noted(%w(one two)))
+      notes.fail_write = "one"
+      notes.on_react = ->(_recorded : Shomen::Recorded) {
+        DB.open("sqlite3://#{path}") { |db| db.exec("UPDATE consumers SET checkpoint = 2 WHERE name = 'spec_notes'") }
+        nil
+      }
+      notes.run_once.should eq(0)
+      notes.texts.should be_empty
+      notes.checkpoint.should eq(2_i64)
+    end
+  end
 end

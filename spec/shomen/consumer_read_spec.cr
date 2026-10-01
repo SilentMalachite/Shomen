@@ -24,6 +24,50 @@ describe "Shomen::Consumer#read" do
       notes.read(1_i64, within: 50.milliseconds) { |_| }
     end
   end
+
+  it "raises Shomen::Unavailable within the limit while another fiber holds the file (sqlite3)" do
+    with_store do |store|
+      notes = SpecConsumers::Notes.new(store)
+      notes.checkpoint
+      store.append("s", 0_i64, note("one"))
+      unavailable_while_held(store, notes)
+    end
+  end
+
+  postgres_database_it "raises Shomen::Unavailable within the limit while another fiber holds the only connection (postgres)" do |url|
+    uri = URI.parse(url)
+    uri.query = "max_pool_size=1"
+    store = Shomen::Store.new(uri.to_s)
+    begin
+      notes = SpecConsumers::Notes.new(store)
+      notes.checkpoint
+      store.append("s", 0_i64, note("one"))
+      unavailable_while_held(store, notes)
+    ensure
+      store.close
+    end
+  end
+end
+
+# Holds the store's connection for a second while notes reads id 1 with a
+# 50 ms limit, which must raise long before the connection comes back.
+private def unavailable_while_held(store : Shomen::Store, notes : SpecConsumers::Notes) : Nil
+  held = Channel(Nil).new
+  released = Channel(Nil).new
+  spawn do
+    store.using_connection do |_|
+      held.send(nil)
+      sleep 1.second
+    end
+    released.send(nil)
+  end
+  held.receive
+  started = Time.instant
+  expect_raises(Shomen::Unavailable, /\Aspec_notes did not reach event 1 within /) do
+    notes.read(1_i64, within: 50.milliseconds) { |_| }
+  end
+  (Time.instant - started).should be < 500.milliseconds
+  released.receive
 end
 
 describe "a page that reads a projection kept in tables" do

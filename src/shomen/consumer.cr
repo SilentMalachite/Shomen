@@ -118,11 +118,34 @@ abstract class Shomen::Consumer
     return if id <= 0
     deadline = Time.instant + within
     check = CHECK_FIRST
-    until checkpoint >= id
+    until reached?(id, deadline)
       left = deadline - Time.instant
       raise Shomen::Unavailable.new("#{name} did not reach event #{id} within #{within}") unless left.positive?
       sleep({check, left}.min)
       check = {check * 2, CHECK_LIMIT}.min
+    end
+  end
+
+  # Reads the checkpoint in a fiber of its own, so a wait for a connection
+  # or the file's lock ends at the deadline too; that fiber ends by itself
+  # once it gets one. False when the deadline passes first.
+  private def reached?(id : Int64, deadline : Time::Instant) : Bool
+    left = deadline - Time.instant
+    return false unless left.positive?
+    result = Channel(Int64 | Exception).new(1)
+    store = @store
+    consumer = name
+    spawn(name: "shomen consumer checkpoint") do
+      result.send(store.checkpoint(consumer))
+    rescue ex
+      result.send(ex)
+    end
+    select
+    when value = result.receive
+      raise value if value.is_a?(Exception)
+      value >= id
+    when timeout(left)
+      false
     end
   end
 

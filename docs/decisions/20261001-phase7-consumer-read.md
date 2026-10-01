@@ -5,7 +5,7 @@
 # 決定
 
 - `Shomen::Consumer#read(id : Int64 = 0, within : Time::Span = 2.seconds, & : DB::Connection -> T) : T` は、チェックポイントが `id` 以上になるまで待ち、`Shomen::Store#using_connection` の接続をブロックに渡して、その値を返す。`id` が 0 以下なら待たず、チェックポイントも読まない
-- 待つ間は `consumers` の行を読み直す。間隔は 10 ミリ秒から倍にし、200 ミリ秒を上限にする。`within` を過ぎても届かなければ、`Shomen::Unavailable` を「`名前 did not reach event id within 上限`」で投げる
+- 待つ間は `consumers` の行を読み直す。間隔は 10 ミリ秒から倍にし、200 ミリ秒を上限にする。`within` を過ぎても届かなければ、`Shomen::Unavailable` を「`名前 did not reach event id within 上限`」で投げる。チェックポイントの読みは別のファイバーで行い、接続やファイルのロックを待つ間も `within` で打ち切る（`react` が接続を持ったままのコンシューマがプールを使い切っていても、プールの待ちの上限ではなく `within` で 503 になる）。打ち切られたファイバーは、接続を得て読み終えたところで終わる
 - `Shomen::Server` は捕まえられなかった `Shomen::Unavailable` を、見出し `Unavailable` と `Shomen::Server::UNAVAILABLE_DETAIL`（`This page cannot show the latest changes yet. Try again in a moment.`）の 503 の HTML 文書にする。例外のメッセージは出さない。`Retry-After` は付けない
 - 7b では、見る必要のある `id` はルートが渡す
 

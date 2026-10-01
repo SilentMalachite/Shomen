@@ -152,7 +152,7 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
   # Runs the side effects outside any transaction, as SQLite's lock covers
   # the whole file, then commits the writes in a short transaction that
   # moves the checkpoint only from the value it read. When another process
-  # moved it first, the writes roll back, and a failure here no longer
+  # moved it first, nothing is written, and a failure here no longer
   # matters.
   def consume(name : String, limit : Int32, react : Proc(Stored, Nil), write : Proc(Stored, DB::Connection, Nil)) : Int32
     from = checkpoint(name)
@@ -171,6 +171,7 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
     applied = 0
     if reacted > 0
       committed = transaction do |connection|
+        next false unless connection.scalar(SELECT_CHECKPOINT, name).as(Int64) == from
         applied, last, failure = each_in_savepoint(connection, rows[0, reacted]) { |row| write.call(row, connection) }
         if failure
           reset_all(connection)
