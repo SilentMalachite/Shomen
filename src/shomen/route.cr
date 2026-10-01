@@ -90,7 +90,30 @@ abstract class Shomen::Route
             route.csrf_token = csrf_token
             route.must_see = must_see
             route.target = ::Shomen::Route.target_of(request)
-            response = route.call(input)
+            {% if @type.has_method?("validator") %}
+              {% if verb != "GET" %}
+                {% raise "#{@type.name.stringify} is not a GET route; only a GET route may define validator" %}
+              {% end %}
+              # Before call, so the body is no older than the validator
+              # (docs/decisions/20261001-phase7-etag.md).
+              validator : String = route.validator(input)
+              {% if @type.has_method?("cache_control") %}
+                cache_control : String = route.cache_control
+              {% else %}
+                cache_control = ::Shomen::ETag::CACHE_CONTROL
+              {% end %}
+              tag = ::Shomen::ETag.tag(validator, csrf_token, route.target)
+              if ::Shomen::ETag.match?(request.headers["If-None-Match"]?, tag)
+                response = ::Shomen::Response.not_modified(tag, cache_control)
+              else
+                response = route.call(input)
+                response.validated(tag, cache_control) if response.status == 200 && !response.is_a?(::Shomen::SSE)
+              end
+            {% elsif @type.has_method?("cache_control") %}
+              {% raise "#{@type.name.stringify} has no validator; only a route with validator may define cache_control" %}
+            {% else %}
+              response = route.call(input)
+            {% end %}
             response.remember = route.must_see if route.remembered?
             response
           {% end %}
@@ -195,6 +218,27 @@ abstract class Shomen::Route
 
   def render_fragment(view : Shomen::Fragment, status : Int32 = 200) : Shomen::Response
     Shomen::Response.html(view.to_html, status)
+  end
+
+  # The fragment cache keeps under name and key, or the one the block
+  # renders. key holds what the fragment depends on: its inputs, the viewer
+  # when the content differs by viewer, and a value that changes with its
+  # data. Each value goes in after its type and length, so "a", "bc" and
+  # "ab", "c" are two keys, and so are "1" and 1. A fragment that contains
+  # this request's CSRF token raises.
+  def cached(cache : Shomen::FragmentCache, name : String, *key : *T, & : -> Shomen::Fragment) : Shomen::Fragment forall T
+    {% for type in T %}
+      {% unless [String, Int32, Int64].includes?(type) %}
+        {% raise "cached takes String, Int32, or Int64 key values, got #{type}" %}
+      {% end %}
+    {% end %}
+    joined = String.build do |io|
+      {name, *key}.each do |value|
+        text = value.to_s
+        io << (value.is_a?(String) ? 's' : 'i') << text.bytesize << ':' << text
+      end
+    end
+    cache.fetch(joined, csrf_token) { yield }
   end
 
   def json(value, status : Int32 = 200) : Shomen::Response
