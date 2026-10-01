@@ -8,7 +8,7 @@
 - 追記は、挿入の後、`COMMIT` の前に、同じ接続で `SELECT pg_notify('shomen_events', 最後の id の 10 進)` を実行する。版が合わずに巻き戻した追記は通知しない
 - 受信は `PG.connect_listen(url, "shomen_events", blocking: true)` を watcher のファイバーで呼ぶ。切断は、そのファイバーに上がる例外で知る
 - 受信の接続は、Store の URL に `application_name=shomen-listen-` と 16 桁の 16 進を足した URL でつなぐ。URL がすでに `application_name` を持っていても、受信の接続だけはこの名前で上書きする
-- 受信の接続を閉じるときは、プールの接続で `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1 AND pid <> pg_backend_pid()` を実行する
+- 受信の接続を閉じるときは、Store の URL に `application_name=shomen-stop-` と 16 桁の 16 進を足した URL で短い接続を開き、`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1 AND pid <> pg_backend_pid()` を実行して閉じる。プールは使わないので、プールが埋まっていても閉じていても、切断は待たされず、プールの接続も作り直さない
 - ペイロードが `id`（10 進の整数）として読めない通知は無視する。`announce` は `id` を下げないので、古い `id` の通知は何もしない
 
 # 理由

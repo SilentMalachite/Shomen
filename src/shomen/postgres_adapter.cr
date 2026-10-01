@@ -36,12 +36,14 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
   NOTIFY  = "SELECT pg_notify($1, $2)"
 
   LISTENER_PREFIX = "shomen-listen-"
+  CONTROL_PREFIX  = "shomen-stop-"
   TERMINATE       = "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1 AND pid <> pg_backend_pid()"
 
   getter key : String
   @db : DB::Database
   @listen_url : String
   @listener_name : String
+  @control_url : String
 
   def initialize(uri : URI)
     database = uri.path.lchop('/')
@@ -53,6 +55,11 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
     listen_params["application_name"] = @listener_name
     listen_uri.query_params = listen_params
     @listen_url = listen_uri.to_s
+    control_uri = uri.dup
+    control_params = control_uri.query_params
+    control_params["application_name"] = CONTROL_PREFIX + Random::Secure.hex(8)
+    control_uri.query_params = control_params
+    @control_url = control_uri.to_s
     params = uri.query_params
     params["max_pool_size"] = POOL_SIZE unless params.has_key?("max_pool_size")
     params["max_idle_pool_size"] = params["max_pool_size"] unless params.has_key?("max_idle_pool_size")
@@ -112,8 +119,12 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
     end
   end
 
+  # On a connection of its own rather than the pool, so a full pool or a
+  # closed one does not hold it up or open a pooled connection again.
   def interrupt_listen : Nil
-    @db.exec(TERMINATE, @listener_name)
+    DB.connect(@control_url) do |connection|
+      connection.exec(TERMINATE, @listener_name)
+    end
   end
 
   def close : Nil

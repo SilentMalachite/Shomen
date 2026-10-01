@@ -13,6 +13,30 @@ private def pool(store : Shomen::Store) : DB::Pool(DB::Connection)
 end
 
 describe Shomen::PostgresAdapter do
+  postgres_it "sends no notification for an append that rolls back" do |store, url|
+    payloads = Channel(String).new(4)
+    listener = PG.connect_listen(url, Shomen::PostgresAdapter::CHANNEL) { |notification| payloads.send(notification.payload) }
+    begin
+      # The trigger is deferred, so it fails at COMMIT, after the adapter's NOTIFY.
+      DB.open(url) do |db|
+        db.exec(%(CREATE FUNCTION reject_bad() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.payload LIKE '%"bad"%' THEN RAISE EXCEPTION 'bad'; END IF; RETURN NEW; END $$))
+        db.exec("CREATE CONSTRAINT TRIGGER bad AFTER INSERT ON events DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_bad()")
+      end
+      expect_raises(PQ::PQError, "bad") do
+        store.append("s", 0_i64, [SpecEvents::Noted.new("ok"), SpecEvents::Noted.new("bad")] of Shomen::Event)
+      end
+      store.append("s", 0_i64, note("after"))
+      select
+      when payload = payloads.receive
+        payload.should eq(store.last_appended.to_s)
+      when timeout(5.seconds)
+        fail "no notification within 5 seconds"
+      end
+    ensure
+      listener.close
+    end
+  end
+
   it "refuses a URL without a database name before it connects" do
     expect_raises(ArgumentError, "store URL must name a database") { Shomen::Store.new("postgres://localhost") }
     expect_raises(ArgumentError, "store URL must name a database") { Shomen::Store.new("postgresql://localhost/") }

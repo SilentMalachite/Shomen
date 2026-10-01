@@ -9,7 +9,7 @@
 - ポーリング: 始まるとすぐに、その後は間隔ごとに `last_id` を読んで `announce` する。問い合わせが失敗したら `shomen` のログに warn を書き、次の間隔で続ける
 - 受信（`StoreAdapter#notifies?` が真の DB だけ）: `last_id` を読んで `announce` してから `StoreAdapter#listen` で通知を待ち、届いた `id` を `announce` する。接続が切れたら warn を書き、100 ミリ秒後につなぎ直す。続けて失敗するたびに待ちを倍にし、間隔を上限にする。前の接続がその時点の待ちより長く続いていたら、待ちを 100 ミリ秒に戻す
 
-`stop` はポーリングを止め、受信中の接続を `StoreAdapter#interrupt_listen` で切り、受信のファイバーが終わるのを待つ。接続を開いている途中で 1 回目の切断が空振りすることがあるので、50 ミリ秒ごとに切断を繰り返し、5 秒で諦めて warn を書く。
+`stop` はポーリングと受信のファイバーに止まるよう知らせ、両方が終わるのを上限（既定 5 秒）まで待つ。ファイバーが閉じたアダプタで問い合わせ、接続を作り直すことが無いようにするためである。`crystal-db` の `Database#close` は閉じた状態を持たず、閉じた後の問い合わせは新しい接続を作る。受信中の接続の切断（`StoreAdapter#interrupt_listen`）は別のファイバーで繰り返し（50 ミリ秒から倍にし、1 秒を上限）、`stop` が上限で戻った後も受信のファイバーが終わるまで続ける。接続を開いている途中で切断が空振りしても、後から開いた接続を切れる。上限を過ぎても終わらない問い合わせが使った接続は、プロセスの終了まで残りうる。
 
 `Shomen::Store` は、最初の `wait_for_append` で watcher を作る。watcher はアダプタの `key` ごとにプロセスで 1 つにし、同じ DB を開いたほかの Store は作られた watcher を使う。間隔は、watcher を作った Store の `poll_interval`（`Shomen::Store.new(url, poll_interval: 5.seconds)`、正でなければ `ArgumentError`）にする。watcher を作った Store の `close` が watcher を止めて一覧から外す。ほかの Store は、次の `wait_for_append` で watcher を作り直す。閉じた Store の `wait_for_append` は watcher を作らない。
 

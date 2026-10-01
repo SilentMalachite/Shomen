@@ -40,7 +40,224 @@ private class FlakyAdapter < Shomen::StoreAdapter
   end
 end
 
+# An adapter that notifies and lets the spec decide when its listening
+# connection opens. interrupt_listen ends a listen only once it is
+# connected, as terminating a backend that does not exist yet does nothing.
+private class GatedAdapter < Shomen::StoreAdapter
+  getter entered = Channel(Nil).new(1)
+  getter opened = Channel(Nil).new(1)
+  getter ended = Channel(Nil).new(1)
+  property interrupt_hangs = false
+  @connect = Channel(Nil).new(1)
+  @interrupted = Channel(Nil).new(1)
+  @connected = Atomic(Bool).new(false)
+
+  def key : String
+    "gated"
+  end
+
+  def append(stream : String, expected_version : Int64, rows : Array(Row)) : Int64
+    raise "not used"
+  end
+
+  def read(after : Int64, limit : Int32) : Array(Stored)
+    [] of Stored
+  end
+
+  def last_id : Int64
+    0_i64
+  end
+
+  def close : Nil
+  end
+
+  def notifies? : Bool
+    true
+  end
+
+  # Lets the listen that waits for it connect.
+  def connect : Nil
+    @connect.send(nil)
+  end
+
+  def listen(on_id : Int64 -> Nil) : Nil
+    @entered.send(nil)
+    @connect.receive
+    @connected.set(true)
+    @opened.send(nil)
+    @interrupted.receive
+    raise IO::EOFError.new
+  ensure
+    @ended.send(nil)
+  end
+
+  def interrupt_listen : Nil
+    Channel(Nil).new.receive if interrupt_hangs
+    @interrupted.send(nil) if @connected.swap(false)
+  end
+end
+
+# An adapter whose polls wait until the spec opens a gate, so a poll can
+# be in progress when stop runs.
+private class BlockingAdapter < Shomen::StoreAdapter
+  getter calls_after_close = 0
+  getter entered = Channel(Nil).new(1)
+  @gate = Channel(Nil).new
+  @closed = false
+
+  def key : String
+    "blocking"
+  end
+
+  def append(stream : String, expected_version : Int64, rows : Array(Row)) : Int64
+    raise "not used"
+  end
+
+  def read(after : Int64, limit : Int32) : Array(Stored)
+    [] of Stored
+  end
+
+  def last_id : Int64
+    select
+    when @entered.send(nil)
+    else
+    end
+    @gate.receive?
+    @calls_after_close += 1 if @closed
+    0_i64
+  end
+
+  # Lets every poll, the one waiting and any later one, return.
+  def open_gate : Nil
+    @gate.close
+  end
+
+  def close : Nil
+    @closed = true
+  end
+end
+
+private def within(channel : Channel(Nil), limit : Time::Span = 10.seconds) : Bool
+  select
+  when channel.receive
+    true
+  when timeout(limit)
+    false
+  end
+end
+
 describe Shomen::AppendWatcher do
+  it "waits for a poll in progress before stop returns, and does not poll after" do
+    adapter = BlockingAdapter.new
+    watcher = Shomen::AppendWatcher.new(adapter, Shomen::AppendSignal.new, 1.hour, stop_limit: 5.seconds)
+    within(adapter.entered).should be_true
+    done = Channel(Nil).new(1)
+    spawn do
+      watcher.stop
+      done.send(nil)
+    end
+    10.times { Fiber.yield }
+    select
+    when done.receive
+      fail "stop returned while a poll was in progress"
+    else
+    end
+    adapter.open_gate
+    within(done, 2.seconds).should be_true
+    adapter.close
+    100.times { Fiber.yield }
+    adapter.calls_after_close.should eq(0)
+  end
+
+  it "returns from stop within its limit when the interrupt hangs" do
+    adapter = GatedAdapter.new
+    adapter.interrupt_hangs = true
+    watcher = Shomen::AppendWatcher.new(adapter, Shomen::AppendSignal.new, 1.hour, stop_limit: 100.milliseconds)
+    adapter.connect
+    within(adapter.opened).should be_true
+    done = Channel(Nil).new(1)
+    spawn do
+      watcher.stop
+      done.send(nil)
+    end
+    within(done, 2.seconds).should be_true
+  end
+
+  it "closes a listening connection that opens after stop gave up" do
+    adapter = GatedAdapter.new
+    watcher = Shomen::AppendWatcher.new(adapter, Shomen::AppendSignal.new, 1.hour, stop_limit: 50.milliseconds)
+    within(adapter.entered).should be_true
+    watcher.stop
+    adapter.connect
+    within(adapter.opened).should be_true
+    within(adapter.ended).should be_true
+  end
+
+  it "backs off by doubling up to the interval, and starts again after a connection that lasted" do
+    first = Shomen::AppendWatcher::RETRY_FIRST
+    Shomen::AppendWatcher.backoff(first, 1.millisecond, 1.second).should eq({first, first * 2})
+    Shomen::AppendWatcher.backoff(first * 4, 1.millisecond, 1.second).should eq({first * 4, first * 8})
+    Shomen::AppendWatcher.backoff(800.milliseconds, 1.millisecond, 1.second).should eq({800.milliseconds, 1.second})
+    Shomen::AppendWatcher.backoff(1.second, 1.millisecond, 1.second).should eq({1.second, 1.second})
+    Shomen::AppendWatcher.backoff(first * 8, 1.minute, 1.second).should eq({first, first * 2})
+  end
+
+  it "leaves no SQLite file behind after the store closes and the file is removed" do
+    path = File.tempname("shomen-store", ".sqlite3")
+    store = Shomen::Store.new("sqlite3://#{path}", poll_interval: 1.millisecond)
+    store.append("a", 0_i64, note("1"))
+    store.wait_for_append(after: 0_i64, within: 1.millisecond).should be_true
+    store.close
+    remove_database(path)
+    100.times { Fiber.yield }
+    File.exists?(path).should be_false
+  ensure
+    remove_database(path) if path
+  end
+
+  postgres_it "leaves no connection after the store closes" do |_, url|
+    other = Shomen::Store.new(url, poll_interval: 1.millisecond)
+    other.append("a", 0_i64, note("1"))
+    other.wait_for_append(after: 0_i64, within: 1.millisecond).should be_true
+    other.close
+    DB.open(url) do |db|
+      # The store that store_it opened keeps its own pool; count only
+      # connections other than that pool's and this one.
+      wait_until(10.seconds) do
+        db.scalar("SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND application_name LIKE 'shomen-%'").as(Int64) == 0
+      end
+    end
+  end
+
+  postgres_it "interrupts without a pooled connection" do |_, url|
+    uri = URI.parse(url)
+    uri.query = "max_pool_size=1"
+    store = Shomen::Store.new(uri.to_s, poll_interval: 1.hour)
+    begin
+      store.wait_for_append(after: 0_i64, within: 1.millisecond)
+      DB.open(url) { |db| wait_until(10.seconds) { PostgresSpec.listeners(db).size == 1 } }
+      adapter = store.@adapter.as(Shomen::PostgresAdapter)
+      held = Channel(Nil).new
+      release = Channel(Nil).new
+      spawn do
+        adapter.@db.using_connection do
+          held.send(nil)
+          release.receive
+        end
+      end
+      held.receive
+      done = Channel(Nil).new(1)
+      spawn do
+        adapter.interrupt_listen
+        done.send(nil)
+      end
+      within(done, 3.seconds).should be_true
+      release.send(nil)
+    ensure
+      store.close
+    end
+  end
+
   it "keeps polling after a poll fails, and logs the failure" do
     signal = Shomen::AppendSignal.new
     adapter = FlakyAdapter.new(failures: 2)
