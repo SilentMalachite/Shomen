@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 7 — scale out**
+**Phase 8 — release preparation**
 
-Phase 7 acceptance is met. Do not implement past this point. Wait for the next instruction.
+Phase 7 acceptance is met. When phase 8 acceptance is met, stop and wait for the next instruction.
 
 ---
 
@@ -169,3 +169,25 @@ Acceptance:
 - With a replica that lags, a POST, its redirect, and the following GET in one session show the appended change
 - When a projection kept in tables does not reach the needed `id` within the limit, the response is 503, not an older state. After the session forgets that `id`, the same page returns 200
 - An application on SQLite runs unchanged. No feature in this phase requires a backing service besides the database
+
+---
+
+## Phase 8 — release preparation
+
+Build:
+
+- No framework feature beyond the specification. A change to `src/` fixes a defect, or a mismatch with the specification, that the work below finds
+- `docs/en/04-API.md`, with its Japanese translation: the public types and methods under `Shomen::` that an application calls, each with the specification section or decision that defines it
+- `examples/records`: a records application of business screens. It uses the parts of phases 1–7 that an application calls: typed routes and path helpers, forms with CSRF, commands and events, a projection kept in tables by a consumer, `remember`, fragments, an SSE stream, an island, a GET route with a validator, and a cached fragment
+- `docs/en/05-SCALE-OUT.md`, with its Japanese translation: the steps that take `examples/records` from one process on SQLite to two processes on Postgres, with and without a replica
+- `shard.yml` version `0.1.0`. A tag is made only when the user asks
+
+Acceptance:
+
+- A spec lists the public types under `Shomen::` at compile time, and fails when one is missing from `04-API.md` or when `04-API.md` names a type that does not exist
+- The specs of `examples/records` pass on SQLite, and on Postgres in CI. Each part listed above for it has at least one spec
+- `examples/records` runs as one process on SQLite and as two processes on Postgres, with and without a replica URL, with no change to its source. Only environment variables differ
+- In CI, two `examples/records` processes on one Postgres database: a record posted to one appears on a page served by the other, and reaches an SSE client connected to the other
+- The commands in `05-SCALE-OUT.md` are the ones CI runs for the two-process check
+- `examples/hello` passes
+- README and CONTRIBUTING, in English and Japanese, point at `04-API.md`, `05-SCALE-OUT.md`, and `examples/records`
