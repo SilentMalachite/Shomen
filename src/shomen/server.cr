@@ -107,15 +107,16 @@ class Shomen::Server
 
   def call(context : HTTP::Server::Context) : Nil
     @connections.request do
-      session = @sessions.load(context.request.cookies[Shomen::Session::COOKIE]?.try(&.value))
+      cookies = context.request.cookies
+      session = @sessions.load(cookies[Shomen::Session::COOKIE]?.try(&.value), cookies[Shomen::Session::APPEND_COOKIE]?.try(&.value))
       write_response(context, respond(context.request, session), session)
     end
   end
 
-  def dispatch(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response
+  def dispatch(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "", must_see : Int64 = 0_i64) : Shomen::Response
     handler = Shomen::Router.find(request.method, request.path)
     return error_response(404, "Not found", nil) unless handler
-    handler.call(request, form, csrf_token)
+    handler.call(request, form, csrf_token, must_see)
   end
 
   private def respond(request : HTTP::Request, session : Shomen::Session) : Shomen::Response
@@ -125,7 +126,7 @@ class Shomen::Server
       return error_response(403, "Forbidden", nil)
     end
     check_encoding(form)
-    dispatch(request, form, session.csrf_token)
+    dispatch(request, form, session.csrf_token, session.remembered)
   rescue ex : Shomen::BadInput
     error_response(400, "Bad input", ex.message)
   rescue ex : Shomen::Forbidden
@@ -187,6 +188,9 @@ class Shomen::Server
     # SHOMEN_SECRET.
     if session.fresh? || session.reissue? || @https
       context.response.headers.add("Set-Cookie", @sessions.cookie(session, @https).to_set_cookie_header)
+    end
+    if response.remember > 0
+      context.response.headers.add("Set-Cookie", @sessions.append_cookie(session, response.remember, @https).to_set_cookie_header)
     end
     context.response.headers["X-Content-Type-Options"] = "nosniff"
     context.response.headers["Referrer-Policy"] = "no-referrer"

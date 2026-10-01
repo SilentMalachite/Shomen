@@ -77,10 +77,20 @@ abstract class Shomen::Consumer
   # state, when within passes first. Registers first, so the consumer's
   # tables exist even for id 0, which neither waits nor reads the
   # checkpoint. The block must not call the store, as the store may run it
-  # inside its lock.
+  # inside its lock. A store with a replica waits for the replica's
+  # checkpoint, then checks the primary's once, for at most CHECK_LIMIT, and
+  # reads where the checkpoint reached id
+  # (docs/decisions/20261001-phase7-replica.md).
   def read(id : Int64 = 0_i64, within : Time::Span = WAIT, & : DB::Connection -> T) : T forall T
     register
-    await(id, within)
+    if @store.replica?
+      replica = id <= 0 || waited?(id, within, replica: true)
+      unless replica || reached?(id, Time.instant + CHECK_LIMIT, replica: false)
+        raise unavailable(id, within)
+      end
+      return @store.using_connection(replica: replica) { |connection| yield connection }
+    end
+    raise unavailable(id, within) unless id <= 0 || waited?(id, within, replica: false)
     @store.using_connection { |connection| yield connection }
   end
 
@@ -112,31 +122,36 @@ abstract class Shomen::Consumer
     end
   end
 
+  private def unavailable(id : Int64, within : Time::Span) : Shomen::Unavailable
+    Shomen::Unavailable.new("#{name} did not reach event #{id} within #{within}")
+  end
+
   # Reads the checkpoint again after CHECK_FIRST, then twice as long each
   # time, at most CHECK_LIMIT, as the consumer may run in another process.
-  private def await(id : Int64, within : Time::Span) : Nil
-    return if id <= 0
+  # False when within passes first.
+  private def waited?(id : Int64, within : Time::Span, replica : Bool) : Bool
     deadline = Time.instant + within
     check = CHECK_FIRST
-    until reached?(id, deadline)
+    until reached?(id, deadline, replica)
       left = deadline - Time.instant
-      raise Shomen::Unavailable.new("#{name} did not reach event #{id} within #{within}") unless left.positive?
+      return false unless left.positive?
       sleep({check, left}.min)
       check = {check * 2, CHECK_LIMIT}.min
     end
+    true
   end
 
   # Reads the checkpoint in a fiber of its own, so a wait for a connection
   # or the file's lock ends at the deadline too; that fiber ends by itself
   # once it gets one. False when the deadline passes first.
-  private def reached?(id : Int64, deadline : Time::Instant) : Bool
+  private def reached?(id : Int64, deadline : Time::Instant, replica : Bool) : Bool
     left = deadline - Time.instant
     return false unless left.positive?
     result = Channel(Int64 | Exception).new(1)
     store = @store
     consumer = name
     spawn(name: "shomen consumer checkpoint") do
-      result.send(store.checkpoint(consumer))
+      result.send(store.checkpoint(consumer, replica: replica))
     rescue ex
       result.send(ex)
     end

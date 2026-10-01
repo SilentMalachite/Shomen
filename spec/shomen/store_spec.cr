@@ -17,6 +17,12 @@ describe Shomen::Store do
     texts(rows).should eq(%w(a1 b1 a2 a3))
   end
 
+  store_it "returns the id of the last event it appended, and 0 for no event" do |store, _|
+    store.append("a", 0_i64, note("a1")).should eq(1_i64)
+    store.append("b", 0_i64, noted(%w(b1 b2))).should eq(3_i64)
+    store.append("b", 2_i64, [] of Shomen::Event).should eq(0_i64)
+  end
+
   store_it "reads only the events after a given id, up to the limit" do |store, _|
     5.times { |index| store.append("s", index.to_i64, note("n#{index}")) }
     store.read(after: 2_i64, limit: 2).map(&.id).should eq([3_i64, 4_i64])

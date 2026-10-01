@@ -256,3 +256,51 @@ module UnavailableRoutes
     end
   end
 end
+
+# Routes that remember an id for the session and show the one it must see
+# (docs/decisions/20261001-phase7-remember-append.md).
+module RememberRoutes
+  # Remembers the id in the form, and answers with must_see.
+  class Remember < Shomen::Route
+    method POST
+    path "/phase7/remember"
+
+    struct Input
+      getter id : Int64
+
+      def initialize(@id : Int64)
+      end
+    end
+
+    def call(input : Input) : Shomen::Response
+      remember input.id
+      Shomen::Response.html(must_see.to_s)
+    end
+  end
+
+  # Remembers an id, then fails.
+  class RememberThenConflict < Shomen::Route
+    method POST
+    path "/phase7/remember-conflict"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      remember 9_i64
+      raise Shomen::Conflict.new("stream s is at version 2, expected 1")
+    end
+  end
+
+  class MustSee < Shomen::Route
+    method GET
+    path "/phase7/must-see"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      Shomen::Response.html(must_see.to_s)
+    end
+  end
+end

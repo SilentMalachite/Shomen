@@ -10,9 +10,11 @@ require "./append_watcher"
 # The append-only event log. The scheme of the URL picks the database
 # (docs/decisions/20260929-phase6-store-adapters.md). After a commit an
 # append wakes what waits for it in this process; the appends of other
-# processes wake it through Shomen::AppendWatcher.
+# processes wake it through Shomen::AppendWatcher. A Postgres store may
+# read from a replica (docs/decisions/20261001-phase7-replica.md).
 class Shomen::Store
   POLL_INTERVAL = 5.seconds
+  POSTGRES      = {"postgres", "postgresql"}
 
   @@signals = {} of String => Shomen::AppendSignal
   @@signals_lock = Mutex.new
@@ -21,6 +23,7 @@ class Shomen::Store
   @@watchers_lock = Mutex.new
 
   @adapter : Shomen::StoreAdapter
+  @replica : Shomen::StoreAdapter? = nil
   @signal : Shomen::AppendSignal
   # The watcher this store started; it stops it on close.
   @watcher : Shomen::AppendWatcher? = nil
@@ -30,12 +33,19 @@ class Shomen::Store
   # tries again at least this often.
   getter poll_interval : Time::Span
 
-  def initialize(url : String, @poll_interval : Time::Span = POLL_INTERVAL)
+  # replica is the URL of a Postgres replica of the Postgres database at
+  # url. Shomen creates nothing there and only reads.
+  def initialize(url : String, @poll_interval : Time::Span = POLL_INTERVAL, replica : String? = nil)
     raise ArgumentError.new("poll_interval must be positive") unless @poll_interval.positive?
-    uri = begin
-      URI.parse(url)
-    rescue ex : URI::Error
-      raise ArgumentError.new("store URL is not valid: #{ex.message}")
+    uri = parse("store", url)
+    replica_uri = replica.try { |value| parse("replica", value) }
+    if replica_uri
+      unless POSTGRES.includes?(uri.scheme)
+        raise ArgumentError.new("a replica needs a postgres store")
+      end
+      unless POSTGRES.includes?(replica_uri.scheme)
+        raise ArgumentError.new("replica URL must use postgres or postgresql, got #{replica_uri.scheme.inspect}")
+      end
     end
     @adapter = case uri.scheme
                when "sqlite3"
@@ -45,19 +55,36 @@ class Shomen::Store
                else
                  raise ArgumentError.new("store URL must use sqlite3, postgres, or postgresql, got #{uri.scheme.inspect}")
                end
+    if replica_uri
+      begin
+        @replica = Shomen::PostgresAdapter.new(replica_uri, replica: true)
+      rescue ex
+        @adapter.close
+        raise ex
+      end
+    end
     key = @adapter.key
     @signal = @@signals_lock.synchronize { @@signals[key] ||= Shomen::AppendSignal.new }
   end
 
-  def append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Nil
+  # Whether reads that ask for the replica go to one.
+  def replica? : Bool
+    !@replica.nil?
+  end
+
+  # Returns the id of the last event appended, 0 when events is empty
+  # (docs/decisions/20261001-phase7-remember-append.md).
+  def append(stream : String, expected_version : Int64, events : Array(Shomen::Event)) : Int64
     raise ArgumentError.new("stream must not be empty") if stream.empty?
     raise ArgumentError.new("expected_version must not be negative") if expected_version < 0
-    return if events.empty?
+    return 0_i64 if events.empty?
     events.each do |event|
       raise ArgumentError.new("#{event.event_type} at must be UTC, got #{event.at}") unless event.at.utc?
     end
     rows = events.map { |event| {event.event_type, event.to_json, event.at.to_rfc3339} }
-    @signal.announce(@adapter.append(stream, expected_version, rows))
+    id = @adapter.append(stream, expected_version, rows)
+    @signal.announce(id)
+    id
   end
 
   # The highest id this process knows the database holds: its own appends
@@ -75,8 +102,9 @@ class Shomen::Store
     @signal.wait(after, within)
   end
 
-  def read(after : Int64, limit : Int32 = 500) : Array(Shomen::Recorded)
-    @adapter.read(after, limit).map { |row| recorded(row) }
+  # replica: true reads the replica when the store has one.
+  def read(after : Int64, limit : Int32 = 500, replica : Bool = false) : Array(Shomen::Recorded)
+    source(replica).read(after, limit).map { |row| recorded(row) }
   end
 
   # Creates the row of the consumer called name, at checkpoint 0, with the
@@ -87,15 +115,15 @@ class Shomen::Store
   end
 
   # The checkpoint any process committed last for the consumer called name.
-  def checkpoint(name : String) : Int64
-    @adapter.checkpoint(name)
+  def checkpoint(name : String, replica : Bool = false) : Int64
+    source(replica).checkpoint(name)
   end
 
   # Lends a connection and returns what the block returns. On SQLite the
   # block must not call this store.
-  def using_connection(& : DB::Connection -> T) : T forall T
+  def using_connection(replica : Bool = false, & : DB::Connection -> T) : T forall T
     result = nil
-    @adapter.using_connection { |connection| result = yield connection }
+    source(replica).using_connection { |connection| result = yield connection }
     result.as(T)
   end
 
@@ -119,7 +147,21 @@ class Shomen::Store
       owned
     end
     watcher.try(&.stop)
-    @adapter.close
+    begin
+      @adapter.close
+    ensure
+      @replica.try(&.close)
+    end
+  end
+
+  private def source(replica : Bool) : Shomen::StoreAdapter
+    replica ? (@replica || @adapter) : @adapter
+  end
+
+  private def parse(name : String, url : String) : URI
+    URI.parse(url)
+  rescue ex : URI::Error
+    raise ArgumentError.new("#{name} URL is not valid: #{ex.message}")
   end
 
   private def recorded(row : Shomen::StoreAdapter::Stored) : Shomen::Recorded

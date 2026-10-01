@@ -16,3 +16,8 @@ def session_cookie(response : HTTP::Client::Response) : String
   header = response.headers.get("Set-Cookie").find(&.starts_with?("shomen_session=")) || raise "no session cookie"
   header.split(';').first
 end
+
+# The name=value of the shomen_append cookie the response sets, or nil.
+def append_cookie?(response : HTTP::Client::Response) : String?
+  response.headers.get?("Set-Cookie").try(&.find(&.starts_with?("shomen_append="))).try(&.split(';').first)
+end

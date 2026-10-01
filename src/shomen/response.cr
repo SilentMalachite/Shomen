@@ -5,6 +5,9 @@ class Shomen::Response
   getter content_type : String
   getter body : String
   getter headers : HTTP::Headers
+  # The id the session remembers after this response; 0 leaves it as it
+  # is (docs/decisions/20261001-phase7-remember-append.md).
+  property remember : Int64 = 0_i64
 
   def initialize(@status : Int32, @content_type : String, @body : String, @headers : HTTP::Headers = HTTP::Headers.new)
   end

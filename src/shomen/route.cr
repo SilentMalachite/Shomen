@@ -7,6 +7,11 @@ abstract class Shomen::Route
 
   property csrf_token : String = ""
   property target : String? = nil
+  # The id this request must not show a state older than: the id the
+  # session remembers, raised by remember, or the append an SSE stream woke
+  # for. 0 when none (docs/decisions/20261001-phase7-remember-append.md).
+  property must_see : Int64 = 0_i64
+  getter? remembered : Bool = false
 
   # The id of the element shomen.js replaces with this response, or nil
   # for a request that did not come from shomen.js. An id is not empty and
@@ -29,7 +34,7 @@ abstract class Shomen::Route
 
   module Hooks
     macro included
-      def self.handle(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "") : Shomen::Response
+      def self.handle(request : HTTP::Request, form : URI::Params = URI::Params.new, csrf_token : String = "", must_see : Int64 = 0_i64) : Shomen::Response
         {% verbatim do %}
           {% begin %}
             {% path_node = @type.constant("PATH") %}
@@ -83,8 +88,11 @@ abstract class Shomen::Route
             )
             route = new
             route.csrf_token = csrf_token
+            route.must_see = must_see
             route.target = ::Shomen::Route.target_of(request)
-            route.call(input)
+            response = route.call(input)
+            response.remember = route.must_see if route.remembered?
+            response
           {% end %}
         {% end %}
       end
@@ -168,6 +176,15 @@ abstract class Shomen::Route
     {% end %}
   end
 
+  # Makes the session remember id, the one an append returned, so its
+  # later requests see the state after it. An id that is not positive does
+  # nothing.
+  def remember(id : Int64) : Nil
+    return unless id > 0
+    @must_see = id if id > @must_see
+    @remembered = true
+  end
+
   def render(view : Shomen::View, status : Int32 = 200) : Shomen::Response
     Shomen::Response.html(view.to_html, status)
   end
@@ -187,11 +204,17 @@ abstract class Shomen::Route
   # Opts this GET route into an event stream for an element with
   # data-shomen-sse. fragment renders now and again after each append to
   # store, through this process or another; the stream sends its HTML
-  # whenever it changed.
+  # whenever it changed. Before each render after an append, must_see
+  # becomes that append's id.
   def sse(store : Shomen::Store, heartbeat : Time::Span = Shomen::SSE::HEARTBEAT, &fragment : -> Shomen::Fragment) : Shomen::Response
+    route = self
+    render = ->(seen : Int64) do
+      route.must_see = seen if seen > route.must_see
+      fragment.call
+    end
     # Crystal types a method by its body, not its return restriction; the cast
     # keeps Router's Proc(..., Shomen::Response) from becoming Proc(..., SSE).
-    Shomen::SSE.new(store, fragment, heartbeat).as(Shomen::Response)
+    Shomen::SSE.new(store, render, heartbeat).as(Shomen::Response)
   end
 
   def redirect(location : String, status : Int32 = 303) : Shomen::Response

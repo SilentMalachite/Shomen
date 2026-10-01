@@ -109,3 +109,92 @@ describe Shomen::SessionStore do
     Shomen::SessionStore.new("new").csrf_valid?(again, first.csrf_token).should be_false
   end
 end
+
+# The session that cookie_value(store, session) loads again, with the
+# append cookie made for it.
+private def remembered(store : Shomen::SessionStore, session : Shomen::Session, append : String?, now : Time = Time.utc) : Int64
+  store.load(cookie_value(store, session), append, now).remembered
+end
+
+describe "Shomen::SessionStore and the id a session remembers" do
+  it "remembers nothing without the append cookie" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    session.remembered.should eq(0_i64)
+    remembered(store, session, nil).should eq(0_i64)
+  end
+
+  it "loads the id from the append cookie of the same session" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    append = store.append_cookie(session, 42_i64, false).value
+    remembered(store, session, append).should eq(42_i64)
+  end
+
+  it "forgets the id once the cookie expired" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    now = Time.utc
+    append = store.append_cookie(session, 42_i64, false, now).value
+    remembered(store, session, append, now + Shomen::Session::REMEMBER - 1.second).should eq(42_i64)
+    remembered(store, session, append, now + Shomen::Session::REMEMBER).should eq(0_i64)
+  end
+
+  it "ignores the append cookie of another session" do
+    store = Shomen::SessionStore.new("k")
+    other = store.load(nil)
+    append = store.append_cookie(other, 42_i64, false).value
+    remembered(store, store.load(nil), append).should eq(0_i64)
+  end
+
+  it "ignores the append cookie with a fresh session" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    append = store.append_cookie(session, 42_i64, false).value
+    store.load(nil, append).remembered.should eq(0_i64)
+  end
+
+  it "ignores an append cookie whose id or expiry was changed" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    id, expires, signature = store.append_cookie(session, 42_i64, false).value.split('.')
+    remembered(store, session, "43.#{expires}.#{signature}").should eq(0_i64)
+    remembered(store, session, "#{id}.#{expires.to_i64 + 3600}.#{signature}").should eq(0_i64)
+  end
+
+  it "ignores a malformed append cookie" do
+    store = Shomen::SessionStore.new("k")
+    session = store.load(nil)
+    expires = (Time.utc + 1.minute).to_unix
+    ["", "42", "42.#{expires}", "..", "x.#{expires}.ab", "0.#{expires}.ab", "-1.#{expires}.ab", "42.#{expires}.ab.cd"].each do |value|
+      remembered(store, session, value).should eq(0_i64)
+    end
+  end
+
+  it "ignores an append cookie signed with another secret" do
+    store = Shomen::SessionStore.new("a")
+    session = store.load(nil)
+    append = Shomen::SessionStore.new("b").append_cookie(session, 42_i64, false).value
+    remembered(store, session, append).should eq(0_i64)
+  end
+
+  it "loads an append cookie signed with the verify secret" do
+    old = Shomen::SessionStore.new("old")
+    session = old.load(nil)
+    append = old.append_cookie(session, 42_i64, false).value
+    rotated = Shomen::SessionStore.new("new", "old")
+    rotated.load(cookie_value(old, session), append).remembered.should eq(42_i64)
+  end
+
+  it "writes the append cookie with the session cookie's attributes and a max-age" do
+    store = Shomen::SessionStore.new("k")
+    header = store.append_cookie(store.load(nil), 42_i64, false).to_set_cookie_header
+    header.should start_with("shomen_append=42.")
+    header.should contain("path=/")
+    header.should contain("max-age=60")
+    header.should contain("HttpOnly")
+    header.should contain("SameSite=Lax")
+    header.should_not contain("Secure")
+    store.append_cookie(store.load(nil), 42_i64, true).to_set_cookie_header.should contain("Secure")
+  end
+end

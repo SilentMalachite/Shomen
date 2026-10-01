@@ -76,6 +76,44 @@ module SSERoutes
     end
   end
 
+  # The id the stream's render must see.
+  class MustSee < Shomen::Route
+    method GET
+    path "/phase7/sse-must-see"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      sse(SSERoutes.store!, heartbeat: SSERoutes::HEARTBEAT) do
+        CountFragment.new("must-see", must_see.to_i32)
+      end
+    end
+  end
+
+  # Raises Shomen::Unavailable for the next UNAVAILABLE[0] renders after
+  # an append, as a fragment that reads a lagging consumer would.
+  UNAVAILABLE = [0]
+
+  class Lagging < Shomen::Route
+    method GET
+    path "/phase7/sse-lagging"
+
+    struct Input
+    end
+
+    def call(input : Input) : Shomen::Response
+      log = SpecEvents::Log.new(SSERoutes.store!)
+      sse(SSERoutes.store!, heartbeat: SSERoutes::HEARTBEAT) do
+        if must_see > 0 && SSERoutes::UNAVAILABLE[0] > 0
+          SSERoutes::UNAVAILABLE[0] -= 1
+          raise Shomen::Unavailable.new("spec did not reach event #{must_see}")
+        end
+        CountFragment.new("lagging", log.catch_up.lines.size)
+      end
+    end
+  end
+
   # Its first render appends, as another request can between a render
   # and the wait that follows it.
   class Racing < Shomen::Route

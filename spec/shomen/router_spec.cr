@@ -17,17 +17,17 @@ end
 describe Shomen::Router do
   it "prefers a static route over a parameter route" do
     handler = Shomen::Router.find("GET", "/phase1/people/new").not_nil!
-    handler.call(HTTP::Request.new("GET", "/phase1/people/new"), URI::Params.new, "").body.should eq("new")
+    handler.call(HTTP::Request.new("GET", "/phase1/people/new"), URI::Params.new, "", 0_i64).body.should eq("new")
   end
 
   it "prefers a static route when the segment is percent-encoded" do
     handler = Shomen::Router.find("GET", "/phase1/people/%6Eew").not_nil!
-    handler.call(HTTP::Request.new("GET", "/phase1/people/%6Eew"), URI::Params.new, "").body.should eq("new")
+    handler.call(HTTP::Request.new("GET", "/phase1/people/%6Eew"), URI::Params.new, "", 0_i64).body.should eq("new")
   end
 
   it "captures an integer segment" do
     handler = Shomen::Router.find("GET", "/phase1/people/8").not_nil!
-    handler.call(HTTP::Request.new("GET", "/phase1/people/8"), URI::Params.new, "").body.should eq("8")
+    handler.call(HTTP::Request.new("GET", "/phase1/people/8"), URI::Params.new, "", 0_i64).body.should eq("8")
   end
 
   it "ignores the query string" do
