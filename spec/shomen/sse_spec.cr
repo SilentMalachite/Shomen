@@ -58,6 +58,30 @@ describe Shomen::SSE do
     end
   end
 
+  it "renders again with the appended id as the one the fragment must see" do
+    with_sse_routes do |store|
+      with_sse_client(SSERoutes::MustSee.path) do |client|
+        client.next_message.should eq(%(<p id="must-see">0</p>))
+        store.append("sse-1", 0_i64, note("one"))
+        client.next_message.should eq(%(<p id="must-see">1</p>))
+        store.append("sse-1", 1_i64, note("two"))
+        client.next_message.should eq(%(<p id="must-see">2</p>))
+      end
+    end
+  end
+
+  it "renders again, without ending, after a render that cannot reach the append yet" do
+    with_sse_routes do |store|
+      SSERoutes::UNAVAILABLE[0] = 2
+      with_sse_client(SSERoutes::Lagging.path) do |client|
+        client.next_message.should eq(%(<p id="lagging">0</p>))
+        store.append("sse-1", 0_i64, note("one"))
+        client.next_message.should eq(%(<p id="lagging">1</p>))
+        SSERoutes::UNAVAILABLE[0].should eq(0)
+      end
+    end
+  end
+
   it "does not lose an append made while the fragment renders" do
     with_sse_routes do
       with_sse_client(SSERoutes::Racing.path) do |client|

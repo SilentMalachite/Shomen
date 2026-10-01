@@ -60,7 +60,9 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
   @listener_name : String
   @control_url : String
 
-  def initialize(uri : URI)
+  # A replica only reads: it creates no table, as a hot standby refuses
+  # writes (docs/decisions/20261001-phase7-replica.md).
+  def initialize(uri : URI, replica : Bool = false)
     database = uri.path.lchop('/')
     raise ArgumentError.new("store URL must name a database") if database.empty?
     @key = self.class.key(uri)
@@ -80,6 +82,7 @@ class Shomen::PostgresAdapter < Shomen::StoreAdapter
     params["max_idle_pool_size"] = params["max_pool_size"] unless params.has_key?("max_idle_pool_size")
     uri.query_params = params
     @db = DB.open(uri.to_s)
+    return if replica
     begin
       locked do |connection|
         connection.exec(SCHEMA)

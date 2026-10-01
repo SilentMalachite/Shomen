@@ -1,14 +1,19 @@
 # The server the process specs start
 # (docs/decisions/20260929-phase6-process-spec.md). Arguments: the port (0
 # for an ephemeral one), "reuse" or "single", and the shutdown limit in
-# seconds. WORKER_DATABASE_URL names the store, and WORKER_POLL_MS its
-# poll interval in milliseconds (5000 unless set).
+# seconds. WORKER_DATABASE_URL names the store, WORKER_REPLICA_URL its
+# replica if any, and WORKER_POLL_MS its poll interval in milliseconds
+# (5000 unless set).
 require "../../src/shomen"
 require "./events"
 require "./projections"
 
 module Worker
-  STORE = Shomen::Store.new(ENV["WORKER_DATABASE_URL"], poll_interval: (ENV["WORKER_POLL_MS"]? || "5000").to_i.milliseconds)
+  STORE = Shomen::Store.new(
+    ENV["WORKER_DATABASE_URL"],
+    poll_interval: (ENV["WORKER_POLL_MS"]? || "5000").to_i.milliseconds,
+    replica: ENV["WORKER_REPLICA_URL"]?,
+  )
   NOTES = SpecEvents::Log.new(STORE)
 
   class Ping < Shomen::Route
@@ -138,7 +143,7 @@ module Worker
     end
 
     def call(input : Input) : Shomen::Response
-      lines = NOTES.catch_up.lines
+      lines = NOTES.catch_up(must_see, within: 300.milliseconds).lines
       render NotesView.new(lines.map(&.text), lines.size.to_i64, csrf_token)
     end
   end
@@ -156,7 +161,7 @@ module Worker
     end
 
     def call(input : Input) : Shomen::Response
-      STORE.append("notes", input.version, [SpecEvents::Noted.new(input.text)] of Shomen::Event)
+      remember STORE.append("notes", input.version, [SpecEvents::Noted.new(input.text)] of Shomen::Event)
       redirect Notes.path
     end
   end

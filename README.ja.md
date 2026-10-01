@@ -7,7 +7,7 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 6 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）が動きます。フェーズ 7 は始まっていて、追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かします。フェーズ 7 の残りは仕様にあり、実装はまだありません。リリースタグもまだありません。
+バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 6 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）が動きます。フェーズ 7 は始まっていて、追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かし、読みを Postgres の replica に回してもセッションは自分の追記を見ます。フェーズ 7 の残りは仕様にあり、実装はまだありません。リリースタグもまだありません。
 
 ## 必要なもの
 
@@ -137,8 +137,10 @@ Shomen::Server.start
 - どのプロセスで追記しても、すべてのプロセスの `sse` と `wait_for_append` が起きます。Postgres では追記が通知を送り、待っているプロセスはプールの外の専用の接続 1 本でそれを受けます。プロセスは DB ごとに最大の id をポーリングするので（既定 5 秒。待ちを始めた Store を `Shomen::Store.new(url, poll_interval:)` で作れば変えられます）、通知が落ちても遅れるだけです。SQLite はポーリングだけを使います。受信とポーリングは、その Store で何かが待ってから始まります
 - `Shomen::Consumer`: 要求の外で動く、表に置くプロジェクションか反応です。`name` を決め、持つ行のために `create_tables(connection)` と `write(recorded, connection)` を、メールなどの副作用のために `react(recorded)` を上書きします。`Shomen::Server.start` の前に `start` を呼び、戻った後、Store を閉じる前に `stop` を呼びます。同じコンシューマをどのプロセスで動かしても構いません。バッチは書き込みとチェックポイントを一緒にコミットし、Postgres はチェックポイントの行をロックし、SQLite は比べるので、各イベントの書き込みは `id` 順に 1 回だけ入ります。副作用は少なくとも 1 回実行されます。失敗したイベントは 1 秒後に、その後は倍ずつ、最長 1 分の間隔で再試行され、飛ばされません。パラメータを初出の順に `$1`、`$2`、… と番号付けした SQL は、SQLite と Postgres の両方で動きます
 - `consumer.read(id, within: 2.seconds) { |connection| … }` は、コンシューマのチェックポイントが `id` に届くまで待ってから、読むための接続を渡します。上限を過ぎると `Shomen::Unavailable` を投げ、サーバはそれを 503 の HTML 文書にします
+- `remember store.append(...)`: `append` は最後に追記したイベントの `id` を返し、`remember` はそれを 2 つ目の署名付きクッキー `shomen_append` に入れて、セッションに 60 秒覚えさせます。そのセッションの後の要求では、どのプロセスでも `must_see` がその `id` になります。`projection.catch_up(must_see)` と `consumer.read(must_see) { … }` に渡せば、ページは追記より古い状態を見せません。`sse` の中では、`must_see` はストリームを起こした追記の `id` です
+- `Shomen::Store.new(url, replica: "postgres://replica/app")`: Postgres の Store の読みを replica に回します。`catch_up` は replica から読み、2 秒以内に `must_see` に届かなければ primary から読みます。`consumer.read` は、replica のチェックポイントが届けば replica で、primary のだけが届いていれば primary で読み、どちらも届かなければ `Shomen::Unavailable` を投げます。追記、コンシューマのバッチ、通知は primary のままで、Shomen は replica に何も作りません。replica の URL は 1 台の standby を指してください。接続ごとに別の standby へ振り分ける URL では、`consumer.read` が遅れた standby で読むことがあります
 
-フェーズ 7 の残りは仕様にあり、コードにはありません。最後の追記を覚えるセッション、HTTP キャッシュ、replica からの読み出しです。
+フェーズ 7 の残りは仕様にあり、コードにはありません。HTTP キャッシュです。
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 

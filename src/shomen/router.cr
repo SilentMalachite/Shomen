@@ -22,7 +22,7 @@ module Shomen::Router
     found
   end
 
-  record Entry, verb : String, pattern : String, shape : String, literals : Int32, handler : Proc(HTTP::Request, URI::Params, String, Shomen::Response)
+  record Entry, verb : String, pattern : String, shape : String, literals : Int32, handler : Proc(HTTP::Request, URI::Params, String, Int64, Shomen::Response)
 
   @@entries : Array(Entry)?
 
@@ -30,7 +30,7 @@ module Shomen::Router
     @@entries ||= build_entries
   end
 
-  def self.find(method : String, path : String) : Proc(HTTP::Request, URI::Params, String, Shomen::Response)?
+  def self.find(method : String, path : String) : Proc(HTTP::Request, URI::Params, String, Int64, Shomen::Response)?
     matches = entries.select { |entry| entry.verb == method && match?(entry.pattern, path) }
     return nil if matches.empty?
     exact = matches.find { |entry| entry.pattern == path }
@@ -100,7 +100,7 @@ module Shomen::Router
           pattern,
           shape,
           literal_count(pattern),
-          ->(request : HTTP::Request, form : URI::Params, csrf_token : String) { {{klass}}.handle(request, form, csrf_token) },
+          ->(request : HTTP::Request, form : URI::Params, csrf_token : String, must_see : Int64) { {{klass}}.handle(request, form, csrf_token, must_see) },
         )
       {% end %}
     {% end %}
