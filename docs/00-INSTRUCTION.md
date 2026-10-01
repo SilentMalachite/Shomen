@@ -156,7 +156,7 @@ DSL は HTML 要素に対応するメソッドを提供する。最低限:
 - `render(view)` → 200 + `text/html; charset=utf-8`
 - `render_fragment(view)` → 200 + 断片。文書の `<html>` を含めない
 - `json(value, status = 200)` → `application/json` + `value.to_json`。サーバが自分で JSON を選ぶことはない
-- `sse(store, heartbeat = 15.seconds) { 断片 }` → イベントストリーム（`text/event-stream`）。断片を今描き、このプロセスで `store` に追記があるたびに描き直し、HTML が変わったときだけ送る。他のプロセスの追記が届くのはフェーズ 7（`docs/decisions/20260929-phase5-sse-response.md`）
+- `sse(store, heartbeat = 15.seconds) { 断片 }` → イベントストリーム（`text/event-stream`）。断片を今描き、`store` への追記のたびに描き直し、HTML が変わったときだけ送る。このプロセスの追記に加え、ほかのプロセスの追記も通知とポーリングで届く（`docs/decisions/20260929-phase5-sse-response.md`、`docs/decisions/20261001-phase7-append-watcher.md`）
 - `redirect(path, status = 303)`
 
 セキュリティヘッダはサーバ既定で付ける。
@@ -257,7 +257,7 @@ end
 - コンシューマは、要求の外で動くプロジェクションまたは反応。チェックポイントより後のイベントをバッチで読む。バッチは、DB への書き込みと新しいチェックポイントを 1 トランザクションでコミットし、それは先に別のプロセスがチェックポイントを動かしていないときだけ行う。そのため、2 つのプロセスが同じイベントを DB に適用することはない。Postgres ではバッチの間チェックポイント行をロックする。SQLite では副作用を先に実行し、その後の短い書き込みトランザクションでチェックポイントを比べる。DB の外への副作用（メール、HTTP 呼び出しなど）は少なくとも 1 回実行されるので、反応は繰り返しに耐える（`docs/decisions/20260929-scale-consumers.md`）
 - バッチの途中でプロセスが死んだら、そのトランザクションは巻き戻り、別のプロセスが保存済みのチェックポイントから続ける
 - イベントで失敗したコンシューマは、間隔を伸ばしながら再試行し、そのイベントを飛ばさない。ほかのコンシューマは進む
-- 追記がコミットされたら、Postgres アダプタは新しい最大の `id` を載せた通知を送る。すべてのプロセスのコンシューマと SSE ストリームがそれで起きる。それぞれ一定間隔でもポーリングするので、通知が落ちても遅れるだけで済む。SQLite には通知が無く、ポーリングだけを使う（`docs/decisions/20260929-scale-notify.md`）
+- 追記がコミットされたら、Postgres アダプタは新しい最大の `id` を載せた通知を送る。すべてのプロセスのコンシューマと SSE ストリームがそれで起きる。それぞれ一定間隔でもポーリングするので、通知が落ちても遅れるだけで済む。SQLite には通知が無く、ポーリングだけを使う（`docs/decisions/20260929-scale-notify.md`）。プロセスは、ある DB への追記を何かが初めて待ったときに、その DB の通知の受信とポーリングを始め、それを始めた Store が閉じたときに止める。プロセスは DB ごとに 1 回だけポーリングし、間隔は待ちを始めた Store の `poll_interval`（`Shomen::Store.new(url, poll_interval: 5.seconds)`）にする（`docs/decisions/20261001-phase7-append-watcher.md`、`docs/decisions/20261001-phase7-notify-channel.md`）
 - 表に置いたプロジェクションを更新するのは、そのコンシューマだけ。ある `id` を見る必要がある要求は、そのプロジェクションのチェックポイントがそこへ届くまで、上限つきで待つ。上限を過ぎたら、古い状態を見せずに `Shomen::Unavailable` を投げる。セッションはその `id` を一定時間後に忘れるので、1 つのイベントが詰まっても、その後のすべてのページが使えなくなることはない
 - 読みは replica に回してよい。要求がイベントを追記したら、セッションがその追記の `id` を覚えている間、同じセッションの後の要求は、どのプロセスが受けても、その追記より古い状態を見せない。上の待ち方を使い、replica が遅れたままなら primary から読む（`docs/decisions/20260929-scale-read-your-writes.md`）
 - GET ルートは検証子（`Input` とリードモデルから作る文字列）を返せる。サーバはそれにビルド ID とセッションの CSRF トークンを合わせて弱い `ETag` として送り、`If-None-Match` が一致したらビューを呼ばずに 304 を返す（`docs/decisions/20260929-scale-etag.md`）

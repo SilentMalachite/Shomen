@@ -37,11 +37,11 @@ HTTP 要求
 | `Shomen::Server` | bind、照合、書き出し | Route, Session |
 | `Shomen::Session` | 署名クッキー | なし |
 | `Shomen::Command` / `Event` | 意図と事実の型 | なし |
-| `Shomen::Store` | 追記と読取、このプロセスで追記を待つものを起こす | Event |
+| `Shomen::Store` | 追記と読取。追記を待つものを、このプロセスの追記ではすぐに、ほかのプロセスの追記では通知とポーリングで起こす | Event |
 | `Shomen::Projection` | チェックポイントより後のイベントを適用 | Event, Store |
 | `Shomen::Consumer` | 要求の外でプロジェクションや反応を動かす | Projection, Command, Store |
 | `Shomen::Island` | 公式 JS と島のモジュールの配信 | Route |
-| `Shomen::SSE` | このプロセスの追記のたびに断片を送り直す | Response, Store, Fragment |
+| `Shomen::SSE` | Store が知った追記のたびに断片を送り直す | Response, Store, Fragment |
 
 下位が上位を import しない。Store が HTML を知ってはいけない。HTML が SQLite を知ってはいけない。
 
