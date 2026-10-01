@@ -186,7 +186,8 @@ abstract class Shomen::Route
 
   # Opts this GET route into an event stream for an element with
   # data-shomen-sse. fragment renders now and again after each append to
-  # store in this process; the stream sends its HTML whenever it changed.
+  # store, through this process or another; the stream sends its HTML
+  # whenever it changed.
   def sse(store : Shomen::Store, heartbeat : Time::Span = Shomen::SSE::HEARTBEAT, &fragment : -> Shomen::Fragment) : Shomen::Response
     # Crystal types a method by its body, not its return restriction; the cast
     # keeps Router's Proc(..., Shomen::Response) from becoming Proc(..., SSE).

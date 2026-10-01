@@ -24,6 +24,7 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
   SELECT_VERSION = "SELECT COALESCE(MAX(version), 0) FROM events WHERE stream = ?"
   INSERT         = "INSERT INTO events (stream, version, type, payload, at) VALUES (?, ?, ?, ?, ?)"
   SELECT_AFTER   = "SELECT id, stream, version, type, payload FROM events WHERE id > ? ORDER BY id LIMIT ?"
+  SELECT_LAST    = "SELECT COALESCE(MAX(id), 0) FROM events"
 
   @@locks = {} of String => Mutex
   @@locks_lock = Mutex.new
@@ -93,6 +94,10 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
     @lock.synchronize do
       @db.query_all(SELECT_AFTER, after, limit, as: {Int64, String, Int64, String, String})
     end
+  end
+
+  def last_id : Int64
+    @lock.synchronize { @db.scalar(SELECT_LAST).as(Int64) }
   end
 
   # Waits for an append or read in progress, which would otherwise use a

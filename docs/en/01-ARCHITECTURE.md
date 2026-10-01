@@ -37,11 +37,11 @@ A read-only GET does not pass through a Command.
 | `Shomen::Server` | Bind, match, write | Route, Session |
 | `Shomen::Session` | Signed cookie | nothing |
 | `Shomen::Command` / `Event` | Types for intent and fact | nothing |
-| `Shomen::Store` | Append and read, and wake what waits for an append in this process | Event |
+| `Shomen::Store` | Append and read, and wake what waits for an append, from this process at once and from others by notification and polling | Event |
 | `Shomen::Projection` | Apply events after a checkpoint | Event, Store |
 | `Shomen::Consumer` | Run a projection or a reaction outside the request | Projection, Command, Store |
 | `Shomen::Island` | Serve the official JavaScript and island modules | Route |
-| `Shomen::SSE` | Send a fragment again after each append in this process | Response, Store, Fragment |
+| `Shomen::SSE` | Send a fragment again after each append the store learns of | Response, Store, Fragment |
 
 A lower module does not import a higher one. Store must not know HTML. HTML must not know SQLite.
 

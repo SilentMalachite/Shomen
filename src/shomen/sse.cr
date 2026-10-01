@@ -4,8 +4,8 @@ require "./store"
 require "./fragment"
 
 # An event stream a route opens with sse. It sends the fragment's HTML
-# first, then again after each append in this process that changed it.
-# Appends in other processes do not wake it (phase 7).
+# first, then again after each append the store learns of, through this
+# process or another, that changed it.
 class Shomen::SSE < Shomen::Response
   HEARTBEAT = 15.seconds
 

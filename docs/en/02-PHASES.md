@@ -4,9 +4,9 @@
 
 ## Current phase
 
-**Phase 6 — Postgres and production hardening**
+**Phase 7 — scale out**
 
-Phase 6 acceptance is met. Do not implement past this point (phase 7 and later). Wait for the next instruction.
+Phase 6 acceptance is met. When phase 7 acceptance is met, stop and wait for the next instruction.
 
 ---
 
@@ -169,5 +169,3 @@ Acceptance:
 - With a replica that lags, a POST, its redirect, and the following GET in one session show the appended change
 - When a projection kept in tables does not reach the needed `id` within the limit, the response is 503, not an older state. After the session forgets that `id`, the same page returns 200
 - An application on SQLite runs unchanged. No feature in this phase requires a backing service besides the database
-
-This phase does not start until the user asks for it.

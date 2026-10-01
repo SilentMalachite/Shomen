@@ -20,7 +20,26 @@ abstract class Shomen::StoreAdapter
 
   abstract def read(after : Int64, limit : Int32) : Array(Stored)
 
+  # The highest id in the database, whoever appended it; 0 when it has no
+  # event.
+  abstract def last_id : Int64
+
   abstract def close : Nil
+
+  # Whether an append sends a notification that listen receives.
+  def notifies? : Bool
+    false
+  end
+
+  # Waits for notifications and passes on the id each carries, until
+  # interrupt_listen ends it or the connection breaks, which raises.
+  # Returns at once for a database that sends none.
+  def listen(on_id : Int64 -> Nil) : Nil
+  end
+
+  # Ends a listen in progress from another fiber.
+  def interrupt_listen : Nil
+  end
 
   protected def check_version(stream : String, current : Int64, expected : Int64) : Nil
     unless current == expected

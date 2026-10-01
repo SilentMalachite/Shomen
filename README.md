@@ -7,7 +7,7 @@
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 to 6 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown). Phase 7 is specified and not implemented. There is no release tag yet.
+Version 0.0.0. Phases 1 to 6 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown). Phase 7 has begun: an append wakes SSE streams in every process. The rest of phase 7 is specified and not implemented. There is no release tag yet.
 
 ## Requirements
 
@@ -118,7 +118,7 @@ Phase 4 adds these:
 
 Phase 5 adds these:
 
-- `sse(store) { fragment }`: an event stream. The fragment renders now and again after each append to `store` in this process, and the stream sends its HTML when it changed. With `<div data-shomen-sse="URL">`, `shomen.js` opens the stream, and each fragment replaces the element with the same id inside that element. Appends in other processes reach it in a later phase
+- `sse(store) { fragment }`: an event stream. The fragment renders now and again after each append to `store` in this process, and the stream sends its HTML when it changed. With `<div data-shomen-sse="URL">`, `shomen.js` opens the stream, and each fragment replaces the element with the same id inside that element. Appends through other processes reach it too (phase 7 below)
 - `Shomen::Island.script "name", "file.js"`: reads an ES module of the application at compile time and serves it at `/islands/name.js`. For each element with `data-shomen-island="name"`, `shomen.js` calls the module's default export with the element. The framework adds no event listener to an element outside an island
 - In `examples/hello`, `GET /counter` has a counter island
 
@@ -132,7 +132,11 @@ Phase 6 adds these:
 - On SIGTERM or SIGINT the server stops accepting, closes idle connections and SSE streams, finishes the requests in progress with `Connection: close`, and `start` returns within `shutdown_timeout` (25 seconds by default). A second signal ends the process at once
 - `examples/hello` stays on SQLite. `HELLO_DATABASE_URL=postgres://localhost/hello crystal run src/hello.cr` runs it on an existing Postgres database
 
-Phase 7 is specified and not in the code: consumers that run outside the request, notifications across processes, HTTP caching, and reads from replicas.
+Phase 7 adds these so far:
+
+- An append through any process wakes `sse` streams and `wait_for_append` in every process. On Postgres an append sends a notification, and a process that waits listens for it on one connection of its own, outside the pool. The process also polls each database for the highest id, every 5 seconds unless the store whose wait started it was made with `Shomen::Store.new(url, poll_interval:)`, so a lost notification only adds delay. SQLite uses polling alone. A process listens and polls only after something waited on the store
+
+The rest of phase 7 is specified and not in the code: consumers that run outside the request, HTTP caching, and reads from replicas.
 
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 

@@ -7,7 +7,7 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 6 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）が動きます。フェーズ 7 は仕様にあり、実装はまだありません。リリースタグもまだありません。
+バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 6 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）が動きます。フェーズ 7 は始まっていて、追記がすべてのプロセスの SSE を起こします。フェーズ 7 の残りは仕様にあり、実装はまだありません。リリースタグもまだありません。
 
 ## 必要なもの
 
@@ -118,7 +118,7 @@ Shomen::Server.start
 
 フェーズ 5 で足したもの:
 
-- `sse(store) { 断片 }`: イベントストリームです。断片を今描き、このプロセスで `store` に追記があるたびに描き直し、HTML が変わったときに送ります。`<div data-shomen-sse="URL">` があると `shomen.js` がストリームを開き、断片はその要素の中の同じ `id` の要素を置き換えます。他のプロセスの追記が届くのは後のフェーズです
+- `sse(store) { 断片 }`: イベントストリームです。断片を今描き、このプロセスで `store` に追記があるたびに描き直し、HTML が変わったときに送ります。`<div data-shomen-sse="URL">` があると `shomen.js` がストリームを開き、断片はその要素の中の同じ `id` の要素を置き換えます。他のプロセスの追記も届きます（下のフェーズ 7）
 - `Shomen::Island.script "name", "file.js"`: アプリの ES モジュールをコンパイル時に読み、`/islands/name.js` で配ります。`shomen.js` は `data-shomen-island="name"` の要素ごとに、その要素を渡してモジュールの既定のエクスポートを呼びます。フレームワークは島の外の要素にイベントリスナーを付けません
 - `examples/hello` の `GET /counter` にカウンターの島があります
 
@@ -132,7 +132,11 @@ Shomen::Server.start
 - SIGTERM か SIGINT を受けると、サーバは受け付けをやめ、アイドルの接続と SSE を閉じ、処理中の要求を `Connection: close` 付きで終えます。`start` は `shutdown_timeout`（既定 25 秒）以内に戻ります。2 回目の合図でプロセスはすぐ終わります
 - `examples/hello` は SQLite のままです。`HELLO_DATABASE_URL=postgres://localhost/hello crystal run src/hello.cr` で、既存の Postgres の DB の上で動きます
 
-フェーズ 7 は仕様にあり、コードにはありません。要求の外で動くコンシューマ、プロセスをまたぐ通知、HTTP キャッシュ、replica からの読み出しです。
+フェーズ 7 でここまでに足したもの:
+
+- どのプロセスで追記しても、すべてのプロセスの `sse` と `wait_for_append` が起きます。Postgres では追記が通知を送り、待っているプロセスはプールの外の専用の接続 1 本でそれを受けます。プロセスは DB ごとに最大の id をポーリングするので（既定 5 秒。待ちを始めた Store を `Shomen::Store.new(url, poll_interval:)` で作れば変えられます）、通知が落ちても遅れるだけです。SQLite はポーリングだけを使います。受信とポーリングは、その Store で何かが待ってから始まります
+
+フェーズ 7 の残りは仕様にあり、コードにはありません。要求の外で動くコンシューマ、HTTP キャッシュ、replica からの読み出しです。
 
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 

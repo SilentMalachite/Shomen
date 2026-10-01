@@ -28,6 +28,9 @@ jobs:
       SHOMEN_SPEC_POSTGRES: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v5
+      # install-crystal runs apt-get install without an update, so a stale
+      # package list on the runner fails with 404s.
+      - run: sudo apt-get update
       - uses: crystal-lang/install-crystal@v1
         with:
           crystal: latest
