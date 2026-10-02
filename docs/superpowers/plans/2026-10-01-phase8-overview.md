@@ -7,7 +7,7 @@
 | 順 | サブ計画 | build 項目（`docs/en/02-PHASES.md` のフェーズ 8） | 満たす受入 | 依存 |
 |---|---|---|---|---|
 | 8a | API 一覧と版（`2026-10-01-phase8a-api-list.md`） | `docs/en/04-API.md` と訳 / `shard.yml` の版 `0.1.0` | 公開の型と `04-API.md` を照合する spec | なし |
-| 8b | `examples/records` を SQLite で | `examples/records` | 部品ごとの spec が SQLite で通る / `examples/hello` が通る | 8a（一覧に載った API だけを使う） |
+| 8b | `examples/records` を SQLite で（`2026-10-03-phase8b-records.md`） | `examples/records` | 部品ごとの spec が SQLite で通る / `examples/hello` が通る | 8a（一覧に載った API だけを使う） |
 | 8c | Postgres の 2 プロセス、手順書、締め | `docs/en/05-SCALE-OUT.md` と訳 | Postgres で spec が通る / 環境変数だけで 1 プロセスにも 2 プロセスにもなる / 2 プロセスで POST がもう一方のページと SSE に届く / 手順書のコマンドは CI と同じ / README と CONTRIBUTING が指す | 8b |
 
 現行フェーズの表示は `791e919` でフェーズ 8 にした。8c の最後のタスクで「フェーズ 8 の受入を満たした」にする。README の「Phases 1 to 7 are what run」の見出しも 8c で直す。
