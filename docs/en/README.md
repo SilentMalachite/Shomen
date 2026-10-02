@@ -6,5 +6,6 @@ Canonical English text. The Japanese translations keep the original filenames on
 2. [01-ARCHITECTURE.md](01-ARCHITECTURE.md) — where state lives and how a request moves
 3. [02-PHASES.md](02-PHASES.md) — build order and the current phase
 4. [03-CONVENTIONS.md](03-CONVENTIONS.md) — code and document rules
+5. [04-API.md](04-API.md) — the public types and methods, and where each is specified
 
 Decision records stay in Japanese under [../decisions/](../decisions/).
