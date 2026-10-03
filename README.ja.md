@@ -39,10 +39,10 @@ crystal run src/hello.cr
 dependencies:
   shomen:
     github: SilentMalachite/Shomen
-    branch: main
+    version: ~> 0.1.0
 ```
 
-`examples/hello` は公開ブランチではなく、隣のチェックアウトを `path: ../..` で参照します。
+`examples/hello` は公開版ではなく、隣のチェックアウトを `path: ../..` で参照します。
 
 ```crystal
 require "shomen"

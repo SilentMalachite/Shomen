@@ -39,7 +39,7 @@ The records example is in [`examples/records`](examples/records). [docs/en/05-SC
 dependencies:
   shomen:
     github: SilentMalachite/Shomen
-    branch: main
+    version: ~> 0.1.0
 ```
 
 `examples/hello` depends on the local checkout with `path: ../..` instead.
