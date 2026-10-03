@@ -1,9 +1,43 @@
 require "spec"
 require "http/client"
+require "db"
+require "pg"
+require "random/secure"
+require "uri"
 ENV["SHOMEN_SPEC"] = "1"
 ENV["SHOMEN_SECRET"] = "spec-secret"
-RECORDS_DATABASE = File.tempname("records", ".sqlite3")
-ENV["RECORDS_DATABASE_URL"] = "sqlite3://#{RECORDS_DATABASE}"
+
+# The suite runs on a new SQLite file, or, when RECORDS_SPEC_POSTGRES names
+# a Postgres server whose user may create databases, on a new database
+# there (docs/decisions/20261003-phase8-scale-out.md).
+module RecordsSpec
+  ADMIN = ENV["RECORDS_SPEC_POSTGRES"]?.presence
+  NAME  = "records_spec_#{Random::Secure.hex(8)}"
+  FILE  = File.tempname("records", ".sqlite3")
+
+  def self.database_url : String
+    if admin = ADMIN
+      DB.open(admin) { |db| db.exec("CREATE DATABASE #{NAME}") }
+      uri = URI.parse(admin)
+      uri.path = "/#{NAME}"
+      uri.to_s
+    else
+      "sqlite3://#{FILE}"
+    end
+  end
+
+  def self.drop : Nil
+    if admin = ADMIN
+      DB.open(admin) { |db| db.exec("DROP DATABASE IF EXISTS #{NAME} WITH (FORCE)") }
+    else
+      [FILE, "#{FILE}-wal", "#{FILE}-shm"].each do |file|
+        File.delete(file) if File.exists?(file)
+      end
+    end
+  end
+end
+
+ENV["RECORDS_DATABASE_URL"] = RecordsSpec.database_url
 require "../src/records"
 
 # The ledger runs for the whole suite, as it does beside the server.
@@ -12,9 +46,7 @@ Records::LEDGER.start
 Spec.after_suite do
   Records::LEDGER.stop
   Records::STORE.close
-  [RECORDS_DATABASE, "#{RECORDS_DATABASE}-wal", "#{RECORDS_DATABASE}-shm"].each do |file|
-    File.delete(file) if File.exists?(file)
-  end
+  RecordsSpec.drop
 end
 
 # A browser without JavaScript: it sends back the cookies the server set,
