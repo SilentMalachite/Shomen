@@ -38,4 +38,27 @@ describe Browser do
   else
     pending("drives Chrome (set SHOMEN_CHROME to a Chrome or Chromium binary)") { }
   end
+
+  # Chrome's first start on a cold machine can take far longer than the
+  # starts after it (docs/decisions/20261003-chrome-start-limit.md).
+  it "gives Chrome longer to start than one DevTools operation" do
+    Browser::START.should be > Browser::LIMIT
+  end
+
+  it "reads the address Chrome prints when it listens" do
+    error = IO::Memory.new("starting\nDevTools listening on ws://127.0.0.1:9333/devtools/browser/x\n")
+    Browser.endpoint(error).should eq({"127.0.0.1", 9333})
+  end
+
+  it "fails when Chrome does not listen within the start limit" do
+    reader, writer = IO.pipe
+    begin
+      expect_raises(Exception, "Chrome did not listen within") do
+        Browser.endpoint(reader, within: 50.milliseconds)
+      end
+    ensure
+      writer.close
+      reader.close
+    end
+  end
 end
