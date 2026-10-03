@@ -6,7 +6,7 @@
 
 **Phase 8 — release preparation**
 
-Phase 7 acceptance is met. When phase 8 acceptance is met, stop and wait for the next instruction.
+Phase 8 acceptance is met. Stop here and wait for the next instruction.
 
 ---
 

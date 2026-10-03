@@ -53,3 +53,22 @@ jobs:
         run: |
           shards install
           crystal spec
+          RECORDS_SPEC_POSTGRES="$SHOMEN_SPEC_POSTGRES" crystal spec
+      # The commands of docs/en/05-SCALE-OUT.md: two processes on one
+      # Postgres database, without and then with a replica URL
+      # (docs/decisions/20261003-phase8-scale-out.md).
+      - name: examples/records on two processes
+        working-directory: examples/records
+        env:
+          SHOMEN_ENV: production
+          SHOMEN_SECRET: ci-two-processes-secret-0123456789abcdef
+          RECORDS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: sh scripts/two_processes.sh
+      - name: examples/records on two processes with a replica URL
+        working-directory: examples/records
+        env:
+          SHOMEN_ENV: production
+          SHOMEN_SECRET: ci-two-processes-secret-0123456789abcdef
+          RECORDS_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          RECORDS_REPLICA_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: sh scripts/two_processes.sh

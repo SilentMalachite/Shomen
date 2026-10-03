@@ -7,7 +7,7 @@
 
 Shomen は Crystal の Web フレームワークです。サーバが HTML 文書を返し、画面の契約はルート宣言ひとつに置きます。基本的なアクセシビリティ違反は、実行前のコンパイルで失敗します。
 
-バージョンは 0.0.0 です。リポジトリに入っているのはフェーズ 7 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）、スケールアウト（追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かし、読みを Postgres の replica に回してもセッションは自分の追記を見て、GET ルートの検証子が 304 を返し、描画した断片をプロセス内にキャッシュする）が動きます。リリースタグはまだありません。
+バージョンは 0.1.0 です。リポジトリに入っているのはフェーズ 8 までで、型付きルート、型付き HTML、HTTP サーバ、フォームの束縛、署名付きセッション Cookie、CSRF 対策、コマンドとイベント、SQLite か Postgres の上の追記のみのイベントストア、メモリ上のプロジェクション、HTML 断片、公式の `shomen.js`、JSON 応答、SSE、島、本番に要るもの（必須の鍵、Content-Security-Policy、ポートの共有、グレースフルシャットダウン）、スケールアウト（追記がすべてのプロセスの SSE を起こし、コンシューマが要求の外でプロジェクションと反応を動かし、読みを Postgres の replica に回してもセッションは自分の追記を見て、GET ルートの検証子が 304 を返し、描画した断片をプロセス内にキャッシュする）が動きます。API の一覧、業務画面のサンプル、そのスケールアウトの手順もあります。リリースタグはまだありません。
 
 ## 必要なもの
 
@@ -28,6 +28,8 @@ crystal run src/hello.cr
 ```
 
 <http://127.0.0.1:3000> を開きます。`GET /` は `<h1>Hello</h1>` を含む文書を返します。
+
+業務画面のサンプルは [`examples/records`](examples/records) です。SQLite の 1 プロセスと Postgres の 2 プロセスでの動かし方は [docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) にあります。
 
 ## アプリから使う
 
@@ -79,7 +81,7 @@ Shomen::Server.start
 
 サーバの待受は `127.0.0.1:3000` です。一致したルートは 200 の HTML、パスパラメータの変換失敗は 400、未知のパスと `Shomen::NotFound` は 404 の HTML、処理されない例外はメッセージをエスケープした 500 の HTML です。`SHOMEN_ENV=production` ではメッセージを出しません。例外は環境によらず `Log` の `shomen` に書きます。すべての応答に `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`、`Content-Security-Policy`（下のフェーズ 6）が付きます。
 
-## いま動くのはフェーズ 1 から 7
+## いま動くのはフェーズ 1 から 8
 
 フェーズ 1 で入っているもの:
 
@@ -142,6 +144,13 @@ Shomen::Server.start
 - GET ルートの `def validator(input : Input) : String`: サーバは `call` の前にこれを呼び、その値、ビルド ID、セッションの CSRF トークン、`Shomen-Target` ヘッダから作った弱い `ETag` を送ります。`Cache-Control` には、ルートが `def cache_control : String` を定義していればその値を、なければ `private, no-cache` を付けます。304 も 200 と同じ `Cache-Control` を送り、`call` の中で違う値を付けると例外になります。`If-None-Match` が一致すれば、`call` を呼ばずに 304 を返します。ビルド ID はコンパイルのたびに変わります。`validator` を定義できるのは GET ルートだけで、`String` を返さなければなりません。それ以外はコンパイルエラーです
 - ルートの中の `cached(CACHE, "notes", notes.checkpoint) { NotesFragment.new(notes) }`（`CACHE = Shomen::FragmentCache.new(max_bytes: 16 * 1024 * 1024)`）: 断片はキーごとに 1 回だけ描画され、プロセスの全セッションが共有します。`max_bytes` を超えたら、最も長く使われていない断片から捨てます。キーには断片が依存するもの、つまり入力、見る人によって中身が変わるなら見る人、データとともに変わる値を入れます。キーの値は `String`、`Int32`、`Int64` です。要求の CSRF トークンを含む断片は例外になります
 
+フェーズ 8 で足したもの:
+
+- [docs/04-API.md](docs/04-API.md): アプリが呼ぶ公開の型とメソッドの一覧。それぞれを定める仕様の節か決定を添えます。一覧とコードが食い違うと spec が落ちます
+- [`examples/records`](examples/records): 備品台帳（登録、貸出、返却）。上の部品、つまり型付きルート、CSRF 付きのフォーム、コマンドとイベント、コンシューマの表、`remember`、断片、SSE、島、検証子、キャッシュした断片を使います
+- [docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md): SQLite の 1 プロセスから、Postgres の 2 プロセス（replica なしとあり）にする手順。CI がそのコマンドを走らせます
+- `shard.yml` の版 0.1.0
+
 フェーズの一覧は [docs/en/02-PHASES.md](docs/en/02-PHASES.md) にあります。日本語訳は [docs/02-PHASES.md](docs/02-PHASES.md) です。
 
 ## 仕様
@@ -154,6 +163,8 @@ Shomen::Server.start
 | 構造 | [docs/en/01-ARCHITECTURE.md](docs/en/01-ARCHITECTURE.md) | [docs/01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md) |
 | フェーズ | [docs/en/02-PHASES.md](docs/en/02-PHASES.md) | [docs/02-PHASES.md](docs/02-PHASES.md) |
 | 規約 | [docs/en/03-CONVENTIONS.md](docs/en/03-CONVENTIONS.md) | [docs/03-CONVENTIONS.md](docs/03-CONVENTIONS.md) |
+| API | [docs/en/04-API.md](docs/en/04-API.md) | [docs/04-API.md](docs/04-API.md) |
+| スケールアウト | [docs/en/05-SCALE-OUT.md](docs/en/05-SCALE-OUT.md) | [docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) |
 
 決定ログは日本語のまま [docs/decisions/](docs/decisions/) に置きます。
 
@@ -170,7 +181,9 @@ cd examples/hello && shards install && crystal spec
 
 `SHOMEN_SPEC_POSTGRES` が無いと、Postgres の spec は pending になります。走らせるときは、DB を作れるユーザーの Postgres の URL を入れます（例 `SHOMEN_SPEC_POSTGRES=postgres://localhost/postgres crystal spec`）。例ごとに DB を作り、終わったら消します。
 
-GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec を走らせます。
+業務画面のサンプルには別に spec があります（`cd examples/records && shards install && crystal spec`）。`RECORDS_SPEC_POSTGRES` に `SHOMEN_SPEC_POSTGRES` と同じような URL を入れると、新しい Postgres の DB で走り、終わったら消します。
+
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec、SQLite と Postgres での `examples/records` の spec、[docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) の 2 プロセスのコマンド（replica の URL なしとあり）を走らせます。
 
 `crystal build` は `./shomen` を書き出します。このバイナリはコミットしません。
 
