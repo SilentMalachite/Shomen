@@ -55,18 +55,25 @@ module Items
     rows.map { |values| Item.new(*values) }
   end
 
-  def self.loans(tag : String, seen : Int64) : Array(Loan)
+  # The item and its loans, newest first, from one statement, so the
+  # history always belongs to the item's event_id, even when the ledger
+  # moves on between reads or a read falls back from replica to primary.
+  def self.find_with_loans(tag : String, seen : Int64) : {Item, Array(Loan)}?
     rows = Records::LEDGER.read(seen) do |connection|
-      connection.query_all("SELECT borrower, lent_at, returned_at FROM records_loans WHERE tag = $1 ORDER BY event_id DESC", tag, as: {String, String, String?})
+      connection.query_all("SELECT i.tag, i.name, i.borrower, i.version, i.event_id, l.borrower, l.lent_at, l.returned_at FROM records_items i LEFT JOIN records_loans l ON l.tag = i.tag WHERE i.tag = $1 ORDER BY l.event_id DESC", tag, as: {String, String, String?, Int64, Int64, String?, String?, String?})
     end
-    rows.map { |values| Loan.new(*values) }
+    first = rows.first? || return nil
+    item = Item.new(first[0], first[1], first[2], first[3], first[4])
+    loans = rows.compact_map do |row|
+      borrower, lent_at = row[5], row[6]
+      Loan.new(borrower, lent_at, row[7]) if borrower && lent_at
+    end
+    {item, loans}
   end
 
-  # The id of the last event the ledger applied to any item, so it changes
-  # with every append the list shows.
-  def self.last_change(seen : Int64) : Int64
-    Records::LEDGER.read(seen) do |connection|
-      connection.scalar("SELECT COALESCE(MAX(event_id), 0) FROM records_items").as(Int64)
-    end
+  # The id of the last event the ledger applied to any of items, so it
+  # changes with every append the list shows.
+  def self.last_change(items : Array(Item)) : Int64
+    items.max_of?(&.event_id) || 0_i64
   end
 end

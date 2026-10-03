@@ -12,8 +12,9 @@
 - 追記したルートは `remember` し、303 で詳細に移る
 - ルート: `GET /items`（一覧、検証子は表の `MAX(event_id)`）、`GET /items/live`（一覧の SSE）、`GET /items/new`（登録フォーム、島 `name-length`）、`POST /items`（登録）、`GET /items/:tag`（詳細、断片 `div#loan-form`、キャッシュした断片 `div#history`）、`POST /items/:tag/loans`（貸出）、`POST /items/:tag/return`（返却）
 - 貸出履歴の断片は、`cached(Records::CACHE, "history", tag, event_id)` で置く。備品が変わると `event_id` が変わり、キーが変わる
+- 詳細、貸出、返却は、備品と貸出履歴を 1 つの文（`Items.find_with_loans`）で読む。一覧の検証子は一覧を 1 回読んで `event_id` の最大値（無ければ 0）にし、`call` は同じ一覧を描く
 - 島 `name-length` は、名前の欄の残りの文字数を見せる。JavaScript が無ければ、数えた行は隠れたまま
-- 設定は環境変数 `RECORDS_DATABASE_URL`（既定 `sqlite3://./var/records.sqlite3`）、`RECORDS_REPLICA_URL`（無いか空なら replica なし）、`RECORDS_PORT`（既定 3000）。秘密と本番の設定はフレームワークの `SHOMEN_SECRET`、`SHOMEN_SECRET_VERIFY`、`SHOMEN_ENV`
+- 設定は環境変数 `RECORDS_DATABASE_URL`（既定 `sqlite3://./var/records.sqlite3`）、`RECORDS_REPLICA_URL`（無いか空なら replica なし）、`RECORDS_PORT`（無ければ 3000。1–65535 の整数でなければ `ArgumentError`）。秘密と本番の設定はフレームワークの `SHOMEN_SECRET`、`SHOMEN_SECRET_VERIFY`、`SHOMEN_ENV`
 - 起動は `Records::LEDGER.start`、`Shomen::Server.start(port: Records.port)`、戻ったら `Records::LEDGER.stop`、`Records::STORE.close` の順
 - spec は `examples/hello` に合わせ、`Shomen::Server#call` を直接呼ぶ。クッキーを持ち回る `Visitor` を spec に置く。SSE はリポジトリの `spec/support/sse_client.cr`、ブラウザは `spec/support/browser.cr` を使う。spec の DB は一時ファイルの SQLite で、コンシューマは spec の間ずっと動かす
 
@@ -24,6 +25,10 @@
 貸出と返却をフォームの版で追記するのは、開いていた画面と違う状態を上書きしないためである。返却のフォームを開いている間に、返却と別の人への貸出が入ったとき、表の版で追記すると、別の人の貸出を返却してしまう。表の版とフォームの版を比べれば、コマンドが見る状態とフォームが見せた状態が同じときだけ追記する。replica が遅れて表の版がフォームより古いときも、409 になり、古い状態で決めない。
 
 一覧の検証子を表の `MAX(event_id)` にすれば、どの備品が変わっても値が変わり、`must_see` まで待った同じ表から読むので、自分の追記の前の一覧を 304 で見せない。
+
+備品と履歴、一覧と検証子をそれぞれ 1 回の読みにするのは、replica があると `read` ごとに replica か primary かを選び直し、2 回の読みが別の時点を見ることがあるからである。検証子だけ primary に落ちると、ETag が本文より新しい一覧を指し、次の変更まで古い一覧が 304 で残る。備品と履歴が別の時点だと、ある `event_id` のキーに別の時点の履歴が入り、そのキーが続く間ずっと見える。1 つの文なら SQLite でも Postgres でも同じ時点を見る。
+
+`RECORDS_PORT` の誤りを 3000 やポート 0 に読み替えないのは、設定の誤りを起動時に知らせるためである。
 
 タグをパスに置くので、path helper が拒む文字（`/`、`?`、`#`、`.`、`..`）をタグの形で先に拒む。
 

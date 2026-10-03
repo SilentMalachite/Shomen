@@ -13,8 +13,13 @@ module Records
   LEDGER = Items::Ledger.new(STORE)
   CACHE  = Shomen::FragmentCache.new
 
+  # 3000 when RECORDS_PORT is unset. Anything but a port number is an
+  # error rather than a port the server would pick.
   def self.port : Int32
-    ENV["RECORDS_PORT"]?.try(&.to_i) || 3000
+    raw = ENV["RECORDS_PORT"]? || return 3000
+    port = raw.to_i32?(whitespace: false)
+    return port if port && 0 < port <= 65_535
+    raise ArgumentError.new("RECORDS_PORT is not a port number: #{raw.inspect}")
   end
 end
 

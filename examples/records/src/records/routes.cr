@@ -6,14 +6,18 @@ module Items
     struct Input
     end
 
-    # Read from the same table as call, after the same wait, so a session
-    # never gets a 304 for a list older than its own append.
+    @items : Array(Item)? = nil
+
+    # Reads the list once, after must_see, and call renders that same list,
+    # so a session never gets a 304 for a list older than its own append,
+    # and the ETag never names a list newer than the body it was sent with.
     def validator(input : Input) : String
-      Items.last_change(must_see).to_s
+      items = @items = Items.all(must_see)
+      Items.last_change(items).to_s
     end
 
     def call(input : Input) : Shomen::Response
-      render IndexView.new(ListFragment.new(Items.all(must_see)))
+      render IndexView.new(ListFragment.new(@items || Items.all(must_see)))
     end
   end
 
@@ -69,16 +73,17 @@ module Items
   # The item page, which Show renders and Lend and Return send again with
   # a message. A request from shomen.js gets the loan form alone.
   module ItemPage
-    private def item_page(item : Item, error : String? = nil, borrower : String = "", status : Int32 = 200) : Shomen::Response
+    # item and loans come from one read, so the history cached under
+    # item.event_id is the history at that event.
+    private def item_page(item : Item, loans : Array(Loan), error : String? = nil, borrower : String = "", status : Int32 = 200) : Shomen::Response
       form_view = LoanFormFragment.new(item, csrf_token, borrower, error)
       return render_fragment(form_view, status: status) if target
-      seen = must_see
-      history = cached(Records::CACHE, "history", item.tag, item.event_id) { HistoryFragment.new(Items.loans(item.tag, seen)) }
+      history = cached(Records::CACHE, "history", item.tag, item.event_id) { HistoryFragment.new(loans) }
       render ShowView.new(item, form_view, history), status: status
     end
 
-    private def stale(item : Item) : Shomen::Response
-      item_page(item, "#{item.tag} changed after this form was shown. Check it and try again.", status: 409)
+    private def stale(item : Item, loans : Array(Loan)) : Shomen::Response
+      item_page(item, loans, "#{item.tag} changed after this form was shown. Check it and try again.", status: 409)
     end
   end
 
@@ -96,8 +101,8 @@ module Items
     end
 
     def call(input : Input) : Shomen::Response
-      item = Items.find(input.tag, must_see) || raise Shomen::NotFound.new
-      item_page(item)
+      item, loans = Items.find_with_loans(input.tag, must_see) || raise Shomen::NotFound.new
+      item_page(item, loans)
     end
   end
 
@@ -119,11 +124,11 @@ module Items
     end
 
     def call(input : Input) : Shomen::Response
-      item = Items.find(input.tag, must_see) || raise Shomen::NotFound.new
-      return stale(item) unless item.version == input.version
+      item, loans = Items.find_with_loans(input.tag, must_see) || raise Shomen::NotFound.new
+      return stale(item, loans) unless item.version == input.version
       result = LendItem.new(item, input.borrower).call
       if result.is_a?(Shomen::Rejected)
-        return item_page(item, result.messages.join(" "), input.borrower, 422)
+        return item_page(item, loans, result.messages.join(" "), input.borrower, 422)
       end
       remember Records::STORE.append(Items.stream(item.tag), item.version, result)
       redirect Show.path(tag: item.tag)
@@ -145,10 +150,10 @@ module Items
     end
 
     def call(input : Input) : Shomen::Response
-      item = Items.find(input.tag, must_see) || raise Shomen::NotFound.new
-      return stale(item) unless item.version == input.version
+      item, loans = Items.find_with_loans(input.tag, must_see) || raise Shomen::NotFound.new
+      return stale(item, loans) unless item.version == input.version
       result = ReturnItem.new(item).call
-      return item_page(item, result.messages.join(" "), status: 422) if result.is_a?(Shomen::Rejected)
+      return item_page(item, loans, result.messages.join(" "), status: 422) if result.is_a?(Shomen::Rejected)
       remember Records::STORE.append(Items.stream(item.tag), item.version, result)
       redirect Show.path(tag: item.tag)
     end
