@@ -7,7 +7,7 @@
 
 Shomen is a Crystal web framework. The server returns HTML documents. One route declaration is the contract for a page, and basic accessibility mistakes fail at compile time.
 
-Version 0.0.0. Phases 1 to 7 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown), and scaling out: an append wakes SSE streams in every process, consumers run projections and reactions outside the request, a session sees its own appends while reads go to a Postgres replica, a GET route's validator answers with 304, and rendered fragments are cached in the process. There is no release tag yet.
+Version 0.1.0. Phases 1 to 8 are in the tree: typed routes, a typed HTML DSL, an HTTP server, form binding, a signed session cookie, CSRF protection, commands and events, an append-only event store on SQLite or Postgres, in-memory projections, HTML fragments, the official `shomen.js`, JSON responses, SSE, islands, and what production needs (a required secret, a Content-Security-Policy, port sharing, and graceful shutdown), and scaling out: an append wakes SSE streams in every process, consumers run projections and reactions outside the request, a session sees its own appends while reads go to a Postgres replica, a GET route's validator answers with 304, and rendered fragments are cached in the process, plus an API list, a records example, and the steps to scale it out. There is no release tag yet.
 
 ## Requirements
 
@@ -28,6 +28,8 @@ crystal run src/hello.cr
 ```
 
 Open <http://127.0.0.1:3000>. `GET /` returns a document that contains `<h1>Hello</h1>`.
+
+The records example is in [`examples/records`](examples/records). [docs/en/05-SCALE-OUT.md](docs/en/05-SCALE-OUT.md) runs it as one process on SQLite and as two processes on Postgres.
 
 ## Use it from an application
 
@@ -79,7 +81,7 @@ Shomen::Server.start
 
 The server listens on `127.0.0.1:3000`. A match returns 200 HTML. A bad path parameter returns 400. An unknown path, or `Shomen::NotFound`, returns 404 HTML. An unhandled exception returns 500 HTML with the message escaped; with `SHOMEN_ENV=production` the message is hidden. The exception goes to `Log` under `shomen` in every environment. Every response sets `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and a `Content-Security-Policy` (phase 6 below).
 
-## Phases 1 to 7 are what run
+## Phases 1 to 8 are what run
 
 Phase 1 builds these:
 
@@ -142,6 +144,13 @@ Phase 7 builds these:
 - `def validator(input : Input) : String` on a GET route: the server calls it before `call`, and sends a weak `ETag` made from it, the build id, the session's CSRF token, and the `Shomen-Target` header, with `Cache-Control: private, no-cache`, or the value of the route's `def cache_control : String`. The 304 sends the same `Cache-Control` as the 200, and a different one set in `call` raises. A matching `If-None-Match` gets a 304 without calling `call`. The build id changes with every compile. Only a GET route may define `validator`, and it must return a `String`; anything else fails to compile
 - `cached(CACHE, "notes", notes.checkpoint) { NotesFragment.new(notes) }` in a route, with `CACHE = Shomen::FragmentCache.new(max_bytes: 16 * 1024 * 1024)`: the fragment is rendered once per key and shared by every session in the process, and the one used least recently is dropped past `max_bytes`. Put in the key what the fragment depends on: its inputs, the viewer when the content differs by viewer, and a value that changes with its data. Key values are `String`, `Int32`, or `Int64`. A fragment that contains the request's CSRF token raises
 
+Phase 8 adds these:
+
+- [docs/en/04-API.md](docs/en/04-API.md): the public types and methods an application calls, each with the section or decision that defines it. A spec fails when the list and the code disagree
+- [`examples/records`](examples/records): an equipment ledger (register, lend, return) on the parts above: typed routes, forms with CSRF, commands and events, a consumer's tables, `remember`, fragments, SSE, an island, a validator, and a cached fragment
+- [docs/en/05-SCALE-OUT.md](docs/en/05-SCALE-OUT.md): the steps from one process on SQLite to two processes on Postgres, with and without a replica. CI runs its commands
+- Version 0.1.0 in `shard.yml`
+
 The phase list is in [docs/en/02-PHASES.md](docs/en/02-PHASES.md).
 
 ## Specification
@@ -154,6 +163,8 @@ English is the canonical text.
 | Architecture | [docs/en/01-ARCHITECTURE.md](docs/en/01-ARCHITECTURE.md) | [docs/01-ARCHITECTURE.md](docs/01-ARCHITECTURE.md) |
 | Phases | [docs/en/02-PHASES.md](docs/en/02-PHASES.md) | [docs/02-PHASES.md](docs/02-PHASES.md) |
 | Conventions | [docs/en/03-CONVENTIONS.md](docs/en/03-CONVENTIONS.md) | [docs/03-CONVENTIONS.md](docs/03-CONVENTIONS.md) |
+| API | [docs/en/04-API.md](docs/en/04-API.md) | [docs/04-API.md](docs/04-API.md) |
+| Scale out | [docs/en/05-SCALE-OUT.md](docs/en/05-SCALE-OUT.md) | [docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) |
 
 Decision records stay in Japanese under [docs/decisions/](docs/decisions/).
 
@@ -170,7 +181,9 @@ cd examples/hello && shards install && crystal spec
 
 Without `SHOMEN_SPEC_POSTGRES` the Postgres specs are pending. To run them, set it to a Postgres URL whose user may create databases, such as `SHOMEN_SPEC_POSTGRES=postgres://localhost/postgres crystal spec`. Each example creates a database and drops it.
 
-On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), and the `examples/hello` specs.
+The records example has its own specs: `cd examples/records && shards install && crystal spec`. With `RECORDS_SPEC_POSTGRES` set to a URL like the one for `SHOMEN_SPEC_POSTGRES`, they run on a new Postgres database, which they drop at the end.
+
+On every pull request and push to `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `crystal tool format --check`, the build, `crystal spec` with a Postgres 17 service and headless Chrome (so no spec is pending there), the `examples/hello` specs, the `examples/records` specs on SQLite and on Postgres, and the two-process commands of [docs/en/05-SCALE-OUT.md](docs/en/05-SCALE-OUT.md), without and with a replica URL.
 
 `crystal build` writes `./shomen`. Do not commit that binary.
 

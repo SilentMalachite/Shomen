@@ -12,6 +12,8 @@ Shomen は、仕様を直してから実装を広げます。正本を読み、�
 4. [docs/en/02-PHASES.md](docs/en/02-PHASES.md) の先頭にある現行フェーズ
 5. [docs/en/03-CONVENTIONS.md](docs/en/03-CONVENTIONS.md)
 
+アプリが呼ぶものの一覧は [docs/04-API.md](docs/04-API.md) です。それを使うサンプルが [`examples/records`](examples/records) で、[docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) がそれを 2 プロセスで動かします。
+
 `docs/en/` の隣にある日本語ファイルは訳です。英語と食い違ったら英語に合わせ、日本語を直します。
 
 先のフェーズが便利そうでも、現行より先は実装しません。次のフェーズは、フェーズ文書が現行だと書くまで始めません。
@@ -44,11 +46,13 @@ cd examples/hello && shards install && crystal spec
 
 `crystal build` はルートに `./shomen` を書き出します。コミットには含めません。
 
+業務画面のサンプルには別に spec があります（`cd examples/records && shards install && crystal spec`）。`RECORDS_SPEC_POSTGRES` を `SHOMEN_SPEC_POSTGRES` と同じように入れると、新しい Postgres の DB で走ります。`examples/records/scripts/two_processes.sh` を変えたら、同じコミットで英日の `05-SCALE-OUT.md` も直します。spec が両者を照合します。
+
 spec はハンドラを直接呼ぶか、フィクスチャをビルドします。固定の公開ポートは取りません。`shomen.js` の spec と `examples/hello` のカウンターの spec は 127.0.0.1 の一時ポートで待ち受け、ヘッドレスの Chrome を動かします。Chrome が無ければ pending になります。`SHOMEN_CHROME` で実行ファイルを指定できます。SSE の spec はストリームをパイプ越しに読みます。
 
 Postgres の spec は、`SHOMEN_SPEC_POSTGRES` に DB を作れるユーザーの Postgres の URL（例 `postgres://localhost/postgres`）を入れたときだけ走ります。無ければ pending です。例ごとに `shomen_spec_...` という DB を作り、終わったら消します。シャットダウン、`reuse_port`、2 プロセスの spec は、`spec/support/server_worker.cr` を 1 回ビルドして 127.0.0.1 の一時ポートで起動し、sleep ではなく出力の行を待ちます。フェーズを終える前に、`SHOMEN_SPEC_POSTGRES` を付けて `crystal spec` を走らせます。
 
-GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec を走らせます。このチェックが通ってから、プルリクエストをレビューに出します。
+GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）は、すべてのプルリクエストと `main` への push で、`crystal tool format --check`、ビルド、Postgres 17 のサービスとヘッドレスの Chrome を使った `crystal spec`（pending になる spec はありません）、`examples/hello` の spec、SQLite と Postgres での `examples/records` の spec、[docs/05-SCALE-OUT.md](docs/05-SCALE-OUT.md) の 2 プロセスのコマンド（replica の URL なしとあり）を走らせます。このチェックが通ってから、プルリクエストをレビューに出します。
 
 ## コミット
 
