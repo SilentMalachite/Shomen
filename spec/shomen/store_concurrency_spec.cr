@@ -36,4 +36,28 @@ describe "Shomen::Store with concurrent writers" do
       log.lines.select(&.stream.==(stream)).map(&.version).should eq((1_i64..300_i64).to_a)
     end
   end
+
+  it "lets processes open one new SQLite file at once" do
+    # Each round starts the workers together on a file that does not exist
+    # yet, so they race to create it and switch it to WAL.
+    5.times do
+      with_store_url("sqlite3") do |url|
+        workers = Array.new(4) do |index|
+          errors = IO::Memory.new
+          {Process.new(Workers.binary("spec/support/store_worker.cr"), [url, "worker-#{index}", "3"], error: errors), errors}
+        end
+        failures = workers.compact_map do |(worker, errors)|
+          status = worker.wait
+          "#{status.exit_code}: #{errors}" unless status.success?
+        end
+        failures.should be_empty
+        store = Shomen::Store.new(url)
+        begin
+          store.read(after: 0_i64, limit: 100).size.should eq(12)
+        ensure
+          store.close
+        end
+      end
+    end
+  end
 end
