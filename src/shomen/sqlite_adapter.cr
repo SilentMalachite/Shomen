@@ -16,6 +16,9 @@ end
 # processes wait through the busy timeout.
 class Shomen::SQLiteAdapter < Shomen::StoreAdapter
   BUSY_TIMEOUT_MS = 5000
+  # SQLITE_BUSY, the primary result code.
+  BUSY = 5
+  WAL  = "PRAGMA journal_mode=wal"
 
   SCHEMA = <<-SQL
     CREATE TABLE IF NOT EXISTS events (
@@ -64,7 +67,8 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
     if params.fetch("prepared_statements_cache", "true") != "true"
       raise ArgumentError.new("store URL must not set prepared_statements_cache")
     end
-    params["journal_mode"] = "wal" unless params.has_key?("journal_mode")
+    # WAL is set once below, not by every connection the URL opens.
+    wal = !params.has_key?("journal_mode")
     params["busy_timeout"] = BUSY_TIMEOUT_MS.to_s unless params.has_key?("busy_timeout")
     uri.query_params = params
     @db = begin
@@ -74,6 +78,7 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
     end
     begin
       @db.using_connection do |connection|
+        use_wal(connection, (params["busy_timeout"].to_i? || BUSY_TIMEOUT_MS).milliseconds) if wal
         connection.exec(SCHEMA)
         connection.exec(CONSUMERS_SCHEMA)
       rescue ex
@@ -193,6 +198,25 @@ class Shomen::SQLiteAdapter < Shomen::StoreAdapter
     reset(connection, "ROLLBACK")
   ensure
     [SELECT_VERSION, INSERT, "COMMIT"].each { |sql| reset(connection, sql) }
+  end
+
+  # Switches the file to WAL; the mode stays with the file. When two
+  # processes switch a new file at once, SQLite answers one of them
+  # SQLITE_BUSY without waiting, as waiting could deadlock. That one tries
+  # again until the busy timeout
+  # (docs/decisions/20261003-sqlite-concurrent-open.md).
+  private def use_wal(connection : DB::Connection, timeout : Time::Span) : Nil
+    deadline = Time.instant + timeout
+    loop do
+      begin
+        connection.scalar(WAL)
+        return
+      rescue ex : SQLite3::Exception
+        reset(connection, WAL)
+        raise ex unless ex.code == BUSY && Time.instant < deadline
+      end
+      sleep 10.milliseconds
+    end
   end
 
   # A statement that failed keeps its error until it is reset, and
