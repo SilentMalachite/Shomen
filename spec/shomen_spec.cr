@@ -10,7 +10,7 @@ describe Shomen do
     Shomen::VERSION.should eq(YAML.parse(File.read("shard.yml"))["version"].as_s)
   end
 
-  it "is version 0.1.0" do
-    Shomen::VERSION.should eq("0.1.0")
+  it "is version 0.1.1" do
+    Shomen::VERSION.should eq("0.1.1")
   end
 end
