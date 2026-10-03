@@ -39,6 +39,24 @@ jobs:
       # Ubuntu 24.04 keeps Chrome's sandbox from unprivileged user namespaces.
       - name: Allow Chrome's sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: "TEMP diagnose Chrome start"
+        run: |
+          chrome=$(command -v google-chrome)
+          "$chrome" --version
+          for i in 1 2 3 4 5; do
+            dir=$(mktemp -d)
+            start=$(date +%s%N)
+            "$chrome" --headless --disable-gpu --no-first-run --no-default-browser-check --user-data-dir="$dir" --remote-debugging-port=0 about:blank 2> "$dir.err" &
+            pid=$!
+            for t in $(seq 1 900); do
+              grep -q "DevTools listening" "$dir.err" && break
+              sleep 0.1
+            done
+            end=$(date +%s%N)
+            echo "launch $i: $(( (end - start) / 1000000 )) ms"
+            head -5 "$dir.err"
+            kill "$pid"; wait "$pid" || true
+          done
       - run: shards install
       - run: crystal tool format --check src spec examples
       - run: crystal build src/shomen.cr --error-trace -o /tmp/shomen
