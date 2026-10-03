@@ -7,7 +7,11 @@ require "file_utils"
 # Drives a headless Chrome over the DevTools protocol with the standard
 # library alone. Browser.executable is nil when no Chrome is found.
 class Browser
-  LIMIT      = 20.seconds
+  LIMIT = 20.seconds
+  # The wait for Chrome to listen. A first start on a cold machine loads
+  # Chrome from disk and takes far longer than the starts after it
+  # (docs/decisions/20261003-chrome-start-limit.md).
+  START      = 60.seconds
   MAC_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
   def self.executable : String?
@@ -23,7 +27,7 @@ class Browser
   # Chrome prints the address it listens on to stderr. A fiber reads it so
   # the wait can be bounded; the rest of the output is read and dropped so
   # the pipe never fills.
-  def self.endpoint(error : IO) : {String, Int32}
+  def self.endpoint(error : IO, within : Time::Span = START) : {String, Int32}
     found = Channel({String, Int32}?).new(1)
     spawn do
       address = nil
@@ -41,8 +45,8 @@ class Browser
     select
     when address = found.receive
       address || raise "Chrome exited before it listened"
-    when timeout(LIMIT)
-      raise "Chrome did not listen within #{LIMIT}"
+    when timeout(within)
+      raise "Chrome did not listen within #{within}"
     end
   end
 
