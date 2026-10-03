@@ -79,6 +79,7 @@ src/shomen/
   server.cr
 spec/
 examples/hello/               # minimal app. Features do not live in the framework
+examples/records/             # business screens, phase 8. Features do not live in the framework
 docs/
 ```
 

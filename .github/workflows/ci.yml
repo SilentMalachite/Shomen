@@ -48,3 +48,8 @@ jobs:
         run: |
           shards install
           crystal spec
+      - name: examples/records
+        working-directory: examples/records
+        run: |
+          shards install
+          crystal spec

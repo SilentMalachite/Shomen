@@ -1,0 +1,8 @@
+name: records
+version: 0.0.1
+license: MIT
+crystal: ">= 1.20.0"
+
+dependencies:
+  shomen:
+    path: ../..

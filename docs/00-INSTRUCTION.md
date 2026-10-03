@@ -79,6 +79,7 @@ src/shomen/
   server.cr
 spec/
 examples/hello/               # 最小アプリ。本体に機能を置かない
+examples/records/             # 業務画面（フェーズ 8）。本体に機能を置かない
 docs/
 ```
 
